@@ -15,6 +15,11 @@ import matplotlib.pyplot as plt
 from nltk.corpus import stopwords
 
 
+# CONSTANTS
+UNKNOWN_GENRE = ('Unknown',)
+UNKNOWN_AUTHOR = 'Unknown'
+
+
 # ## Load dataset
 
 # header for dataset
@@ -103,10 +108,16 @@ def clean_text(text):
     text = ' '.join([word for word in text.split() if word not in stop_words])
     # Remove extra  before and after whitespace
     text = text.strip()
+    # check if text is none
+    text = text if text else np.nan
+
     return text
 
 
 data['Cleaned Summary'] = data['Plot summary'].apply(clean_text)
+
+# Drop rows where 'Cleaned Summary' is NaN
+data = data.dropna(subset=['Cleaned Summary'])
 
 # summary length
 data['Summary Length'] = data['Cleaned Summary']\
@@ -127,9 +138,9 @@ print(f"Number of outliers in Summary Length: {outliers.shape[0]}")
 data = data[(data['Summary Length'] >= lower_bound) &
             (data['Summary Length'] <= upper_bound)]
 
-# Fill Author missing values with 'Unknown' because
+# Fill Author missing values with UNKNOWN_AUTHOR variable because
 # We cannot put anyone's book under the name of another author
-data['Author'].fillna('Unknown', inplace=True)
+data['Author'].fillna(UNKNOWN_AUTHOR, inplace=True)
 
 # Fill missing values book generes based of other author's book
 # this section of code is not good and fix just 2 rows:)))
@@ -137,7 +148,7 @@ data['Author'].fillna('Unknown', inplace=True)
 
 def fill_missing_genres(df, num_modes):
     for author, group in tqdm(df.groupby('Author')):
-        if author != 'Unknown':
+        if author != UNKNOWN_AUTHOR:
             genres = [genre for genres in group['Book genres'] if
                       isinstance(genres, tuple) for genre in genres]
             if genres:
@@ -203,8 +214,178 @@ data['Publication date'].fillna(mean_year, inplace=True)
 
 # We can use "Title-Based" method or Pre-Trained NLP Model
 # for Genre Prediction but in this step ignore this method
-# and just set this missing value genre with "Unknown" value
-data['Book genres'].fillna("Unknown", inplace=True)
+# and just set this missing value genre with UNKNOWN_GENRE variable
+
+
+def fill_with_unknown_genre(x):
+    return UNKNOWN_GENRE if pd.isnull(x) else x
+
+
+data['Book genres'] = data['Book genres'].apply(fill_with_unknown_genre)
 
 # Check the Nan value of all columns
 print(data.isna().sum())
+
+# save cleaned data
+data.to_csv('cleaned_book_summary.csv', sep='\t',
+            index=False, encoding='utf-8')
+
+
+# ## EDA section
+
+import ast
+from tqdm import tqdm
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load dataset from csv file
+data = pd.read_csv('cleaned_book_summary.csv', sep='\t', encoding='utf-8')
+
+# convert all genres values into tuple
+for i in tqdm(range(len(data))):
+    try:
+        genres_tuple = ast.literal_eval(data.loc[i, 'Book genres'])
+        if isinstance(genres_tuple, tuple):
+            data.at[i, 'Book genres'] = genres_tuple
+        else:
+            data.at[i, 'Book genres'] = np.nan
+    except (SyntaxError, ValueError):
+        continue
+
+
+def get_genres_distribution(df):
+    """
+    Calculate the distribution of book genres in the provided DataFrame.
+
+    Parameters:
+    df (pandas.DataFrame): A DataFrame containing a column 'Book genres'
+    with lists of genres for each book.
+
+    Returns:
+    pandas.Series: A Series object containing the count of each genre across
+    all books in descending order.
+
+    The function iterates through the 'Book genres' column of the DataFrame
+    and counts the occurrences of each genre.
+    It then sorts the genres_counts dictionary by the count of each genre in
+    descending order. The sorted dictionary is converted into a Pandas Series
+    and returned.
+    """
+    genres_counts = dict()
+    for i, genres in enumerate(df['Book genres']):
+        for genre in genres:
+            genres_counts[genre] = genres_counts.get(genre, 0) + 1
+
+    # Sort the genres_counts dictionary by values in descending order
+    sorted_genres_counts = dict(sorted(genres_counts.items(),
+                                       key=lambda item: item[1],
+                                       reverse=True))
+
+    # Convert the sorted dictionary to a Pandas Series
+    genre_series = pd.Series(sorted_genres_counts)
+
+    return genre_series
+
+
+# Get basic information about data
+print(f"Number of books: {data.shape[0]}")
+# Check for any remaining missing values
+print(f"Missing values: {data.isnull().sum().any()}")
+
+# Analyze summary length
+summary_stats = data['Summary Length'].describe()
+print(f"\nSummary length statistics:\n{summary_stats}")
+
+# box plot for summary length
+plt.figure(figsize=(15, 3))
+# Creating the box plot
+plt.boxplot(data['Summary Length'], vert=False)
+plt.title('Summary Length Box Plot')
+plt.xlabel('Summary Length')
+plt.ylabel('Value')
+plt.show()
+
+# Analyze publication year
+publication_stats = data['Publication year'].describe()
+print(f"\nPublication year statistics:\n{publication_stats}")
+
+# box plot for publication year
+plt.figure(figsize=(15, 3))
+# Creating the box plot
+plt.boxplot(data['Publication year'], vert=False)
+plt.title('Publication Year Box Plot')
+plt.xlabel('Publication Year')
+plt.ylabel('Value')
+plt.show()
+
+# Genre distribution
+genre_counts = get_genres_distribution(data)
+print(f"\nGenre distribution:\n{genre_counts}")
+
+# Get the top 10 most frequent genres
+top_genres = genre_counts.head(10)
+
+# Plot genre distribution
+plt.figure(figsize=(20, 6))
+top_genres.plot(kind='bar', color='skyblue')
+plt.xlabel('Genre')
+plt.ylabel('Number of Books')
+plt.title('Top 10 Most Distribution of Book Genres')
+plt.xticks(rotation=0)
+plt.show()
+
+# Publication year distribution
+year_counts = data['Publication year'].value_counts()
+print(f"\nPublication year distribution:\n\n{year_counts}")
+
+# Get the top 20 most frequent publication year
+top_years = year_counts.head(20)
+
+# Plot publication year distribution
+plt.figure(figsize=(20, 6))
+top_years.plot(kind='bar', color='skyblue')
+plt.xlabel("Publication year")
+plt.ylabel("Number of Publication year")
+plt.title("Top 20 Distribution of Publication year")
+plt.xticks(rotation=45)
+plt.show()
+
+# Author analysis
+author_counts = data['Author'].value_counts()
+print(f"\nAuthor analysis:\n\n{author_counts}")
+
+# Get the top 20 most frequent authors
+top_authors = author_counts.head(21)[1:]  # remove the Unknown author
+
+# Plot most frequent authors
+plt.figure(figsize=(20, 6))
+top_authors.plot(kind='bar', color='skyblue')
+plt.xlabel("Authors")
+plt.ylabel("Number of books")
+plt.title("Author Popularity")
+plt.xticks(rotation=45)
+plt.show()
+
+# Genre Co-occurrence analysis
+genre_pairs = []
+for genres in data['Book genres']:
+    for i in range(len(genres) - 1):
+        for j in range(i + 1, len(genres)):
+            pair = (genres[i], genres[j])
+            genre_pairs.append(pair)
+
+# Count occurrences
+genre_pair_counts = pd.Series(genre_pairs).value_counts()
+
+# Print top 10 most frequent genre pairs
+most_frequent_genre_pairs = genre_pair_counts.head(10)
+print(most_frequent_genre_pairs)
+
+# Plot most frequent genre co-occurrence
+plt.figure(figsize=(20, 6))
+most_frequent_genre_pairs.plot(kind='bar', color='skyblue')
+plt.xlabel("Genre Pair")
+plt.ylabel("Number of Occurrences")
+plt.title("Genre Co-occurrence")
+plt.xticks(rotation=45)
+plt.show()
