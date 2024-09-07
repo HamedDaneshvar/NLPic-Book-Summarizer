@@ -2,3 +2,6 @@ notebook~=7.2.2
 pandas~=2.1.4
 matplotlib~=3.8.2
 nltk~=3.9.1
+transformers~=4.44.2
+torch~=2.4.1
+rouge-score~=0.1.2
