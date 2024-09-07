@@ -179,3 +179,56 @@ Length: 4553
 <div style="text-align:center;">
     <img src='./assets/genre_co-occurrence.png'></img>
 </div>
+
+
+## Natural Language Processing Component
+
+In this section, the task assigned to us was to convert the summaries of books available in the dataset into shorter summaries. We decided to use the `facebook/bart-large-cnn` model, commonly known as BART, among the three models BART, T5, and PEGASUS because it performed excellently for high-quality and moderately compressed summaries. Therefore, we prepared the model to utilize GPU if available; otherwise, it would fall back to CPU. 
+
+We defined two functions named `summarize_batch` and `batch_summarization`. The first function is responsible for taking a batch of texts and summarizing them using the BART model, while the second function manages the dataset and sends it batch by batch to prevent memory errors. 
+
+Afterward, we provided a text as a sample to the model, measured the accuracy and length of the summarized text. The results are presented below. As evident, the length of the text before summarization was 531 tokens or, in other words, words, and after using the BART model and summarizing the text, it decreased to 72 words.
+
+
+```sh
+Cleaned Summary lenght: 531
+Summarized Text lenght: 72
+```
+
+The accuracy results of the model on summarizing this text are also as follows, obtained using the `rouge_score` library.
+
+```sh
+ROUGE-1:  Score(precision=1.0, recall=0.13559322033898305, fmeasure=0.23880597014925373)
+ROUGE-2:  Score(precision=1.0, recall=0.1339622641509434, fmeasure=0.2362728785357737)
+ROUGE-L:  Score(precision=1.0, recall=0.13559322033898305, fmeasure=0.23880597014925373)
+```
+
+ROUGE scores obtained provide us with valuable insights into the performance of your summarization model. A breakdown of these results is provided below:
+
+### **ROUGE-1:**
+- **Precision = 1.0**: This indicates that 100% of unigrams in the summary are present in the original text. In other words, all summary words are present in the original text.
+- **Recall = 0.136**: Only about 13.6% of original text unigrams are included in the summary, indicating a highly compressed summary.
+- **F1-Score = 0.239**: This score represents the harmonic mean between precision and recall, balancing both metrics. While precision is perfect, the relatively low recall pulls down the F1-score.
+
+### **ROUGE-2:**
+- **Precision = 1.0**: All bigrams in the summary are seen in the original text.
+- **Recall = 0.134**: Only about 13.4% of original text bigrams are present in the summary, showing limited coverage of original bigram content.
+- **F1-Score = 0.236**: This score shows the balance between precision and recall for bigrams. Similar to ROUGE-1, perfect precision is balanced by low recall.
+
+### **ROUGE-L:**
+- **Precision = 1.0**: All common long subsequences (text pieces that preserve word order) in the summary are present in the original text.
+- **Recall = 0.136**: Approximately 13.6% of original text subsequences are included in the summary, once again indicating a very compressed summary.
+- **F1-Score = 0.239**: This score demonstrates the balance between precision and recall for subsequences, similar to unigrams and bigrams.
+
+### **Interpretation:**
+- **Perfect Precision (1.0)**: All words, bigrams, and subsequences in the summary are directly taken from the original text. This implies that the summary is very faithful in terms of word selection and order to the original summary.
+- **Low Recall (about 13.5%)**: The summary only contains a small portion of the original text, indicating a significant reduction in content. This is because the summary has been selectively shortened.
+- **F1-scores (about 0.239)**: The F1 scores indicate the balance between precision and recall. Since precision is perfect but recall is low, the F1 scores are relatively low.
+
+### **Findings Summary:**
+- The summarization model generates summaries that are **very precise**, ensuring that the words and phrases used are correctly extracted from the original text.
+- However, the **low recall** suggests that the summaries have omitted a large portion of the original content, making them very compressed.
+- If our goal is to produce **short and concise summaries**, this level of compression may be ideal, which aligns with our objective. On the other hand, if we aim to preserve more of the original content, we may need to **increase the length of the summary** or adjust the model parameters.
+
+
+Finally, we have added the results of this section as a column named `Summarized_Text` to the dataset and saved the dataset file in CSV format.
