@@ -232,3 +232,10 @@ ROUGE scores obtained provide us with valuable insights into the performance of 
 
 
 Finally, we have added the results of this section as a column named `Summarized_Text` to the dataset and saved the dataset file in CSV format.
+
+
+## Computer Vision Component
+
+In this section, we have been asked to use the generated summaries of books from the previous stage to convert these texts into images using text-to-image models. For this task, we utilized the `CompVis/stable-diffusion-v1-4` model. (If you wonder why we did not use version 1.5, it was because it was not available despite being mentioned on [huggingface](https://huggingface.co/docs/diffusers/en/api/pipelines/stable_diffusion/text2img) and its documentation being present, we encountered a 404 error when trying to download the model.)
+
+For this section, three functions have been written: `text_to_image`, `batch_text_to_images`, and `display_image`. The first function is responsible for converting the input text into an image and delivering it to us. Additionally, variables have been defined in this section to have more control over the desired output, such as the image's length and width, as well as the number of images generated for the input text. The second function sends batches of text data to the first function, managing memory to avoid Memory Errors and ensuring that we do not encounter errors due to time restrictions on GPU usage in Google Colab, enabling us to have optimal usage of resources within the timeframe provided. The third function takes an image as input and displays it, used only for testing the model where a text is sent to it to generate and display an image as an example.
