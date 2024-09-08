@@ -21,8 +21,7 @@ import matplotlib.pyplot as plt
 UNKNOWN_GENRE = ('Unknown',)
 UNKNOWN_AUTHOR = 'Unknown'
 
-
-# ### Load dataset
+"""### Load dataset"""
 
 # header for dataset
 header = ['Wikipedia article ID', 'Freebase ID', 'Book title', 'Author',
@@ -39,8 +38,7 @@ data.head()
 # Display shape of data
 print(f"Shape of dataset: {data.shape}")
 
-
-# ### Preprocess Section
+"""### Preprocess Section"""
 
 # # Drop "Freebase ID" column cause that values are unique and useless
 data = data.drop("Wikipedia article ID", axis=1)
@@ -67,7 +65,6 @@ for i in tqdm(range(len(data))):
 data.rename(columns={'Book genres (Freebase ID:name tuples)': 'Book genres'},
             inplace=True)
 
-
 def extract_year(pub_date):
     """
     Convert publication date to just the year
@@ -77,7 +74,6 @@ def extract_year(pub_date):
         return pd.to_datetime(pub_date, errors='coerce').year
     return int(pub_date) if isinstance(pub_date, str) and pub_date.isdigit()\
         else np.nan
-
 
 data['Publication year'] = data['Publication date'].apply(extract_year)
 
@@ -111,8 +107,8 @@ def clean_text(text):
     # we don't remove stop words to get more accurate text in step 2
     # text = ' '.join([word for word in text.split()
     #                  if word not in stop_words])
-
     # Remove extra  before and after whitespace
+
     text = text.strip()
     # check if text is none
     text = text if text else np.nan
@@ -236,9 +232,7 @@ print(data.isna().sum())
 data.to_csv('cleaned_book_summary.csv', sep='\t',
             index=False, encoding='utf-8')
 
-
-# ### EDA section
-
+"""### EDA section"""
 
 import ast
 from tqdm import tqdm
@@ -258,7 +252,6 @@ for i in tqdm(range(len(data))):
             data.at[i, 'Book genres'] = np.nan
     except (SyntaxError, ValueError):
         continue
-
 
 def get_genres_distribution(df):
     """
@@ -292,7 +285,6 @@ def get_genres_distribution(df):
     genre_series = pd.Series(sorted_genres_counts)
 
     return genre_series
-
 
 # Get basic information about data
 print(f"Number of books: {data.shape[0]}")
@@ -397,18 +389,18 @@ plt.title("Genre Co-occurrence")
 plt.xticks(rotation=45)
 plt.show()
 
+"""## Step 2: NLP Component"""
+
 # import google drive to use gpu for this section
 from google.colab import drive
 drive.mount('/content/drive')
 
-get_ipython().system('pip install -q transformers torch rouge-score')
-
+!pip install -q transformers torch rouge-score
 
 from tqdm import tqdm
 import pandas as pd
 import torch
 from transformers import BartTokenizer, BartForConditionalGeneration
-
 
 # Load pre-trained BART model and tokenizer, move model to GPU if available
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -423,13 +415,10 @@ model = BartForConditionalGeneration.from_pretrained(
 file_path = 'drive/MyDrive/cleaned_book_summary.csv'
 data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
 
-
 # # Load dataset from local csv file
 # data = pd.read_csv('cleaned_book_summary.csv', sep='\t', encoding='utf-8')
 
-
-def summarize_batch(texts, max_input_length=1024, max_output_length=100,
-                    num_beams=2, device='cpu'):
+def summarize_batch(texts, max_input_length=1024, max_output_length=100, num_beams=2, device='cpu'):
     """
     Summarizes a batch of input texts using the BART model.
 
@@ -443,10 +432,8 @@ def summarize_batch(texts, max_input_length=1024, max_output_length=100,
     Returns:
     list of str: List of summarized texts.
     """
-    # Tokenize and truncate the input to the max input
-    # length (batch processing)
-    inputs = tokenizer(texts, return_tensors="pt", max_length=max_input_length,
-                       truncation=True, padding=True).to(device)
+    # Tokenize and truncate the input to the max input length (batch processing)
+    inputs = tokenizer(texts, return_tensors="pt", max_length=max_input_length, truncation=True, padding=True).to(device)
 
     # Generate the summary for the batch
     summary_ids = model.generate(
@@ -457,10 +444,7 @@ def summarize_batch(texts, max_input_length=1024, max_output_length=100,
     )
 
     # Decode the generated tokens into a string (summary)
-    return [tokenizer.decode(g, skip_special_tokens=True,
-                             clean_up_tokenization_spaces=True)
-            for g in summary_ids]
-
+    return [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=True) for g in summary_ids]
 
 # Example usage on a single text summary
 sample_text = data.loc[0, 'Cleaned Summary']
@@ -469,7 +453,6 @@ print("Cleaned Summary lenght:", len(sample_text.split()))
 print("Summarized Text lenght:", len(short_summary.split()))
 print("Summarized Text:", short_summary)
 
-
 # Check for accuracy of the model with sample text
 from rouge_score import rouge_scorer
 
@@ -477,8 +460,7 @@ from rouge_score import rouge_scorer
 # we use sample_text as original_text and short_summary as summarized text
 
 # Initialize ROUGE scorer
-scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'],
-                                  use_stemmer=True)
+scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
 
 # Compute ROUGE scores
 scores = scorer.score(sample_text, short_summary)
@@ -488,43 +470,40 @@ print("ROUGE-1: ", scores['rouge1'])
 print("ROUGE-2: ", scores['rouge2'])
 print("ROUGE-L: ", scores['rougeL'])
 
+"""The ROUGE scores you've obtained provide valuable insight into the performance of your summarization model. Here's a breakdown of the results:
 
-# The ROUGE scores you've obtained provide valuable insight into the performance of your summarization model. Here's a breakdown of the results:
-# 
-# ### **ROUGE-1:**
-# - **Precision = 1.0**: This indicates that 100% of the unigrams (individual words) in the summary are found in the original text. In other words, all the words in the summary are present in the original.
-# - **Recall = 0.136 (approx)**: Only about 13.6% of the unigrams from the original text are included in the summary, meaning the summary is quite condensed.
-# - **F1-Score = 0.239 (approx)**: This score represents the harmonic mean between precision and recall, balancing both metrics. While precision is perfect, the relatively low recall pulls the F1-score down.
-# 
-# ### **ROUGE-2:**
-# - **Precision = 1.0**: All the bigrams (pairs of consecutive words) in the summary appear in the original text.
-# - **Recall = 0.134 (approx)**: Only about 13.4% of the bigrams from the original text are present in the summary, indicating that the bigram coverage of the original content is limited.
-# - **F1-Score = 0.236 (approx)**: This score reflects the balance between precision and recall for bigrams. Similar to ROUGE-1, the perfect precision is offset by low recall.
-# 
-# ### **ROUGE-L:**
-# - **Precision = 1.0**: All of the longest common subsequences (chunks of text that maintain word order) in the summary are present in the original text.
-# - **Recall = 0.136 (approx)**: About 13.6% of the original text's sequences are included in the summary, again showing that the summary is highly condensed.
-# - **F1-Score = 0.239 (approx)**: This score balances precision and recall for subsequences, similar to the unigrams and bigrams.
-# 
-# ### **Interpretation:**
-# - **Perfect precision (1.0)**: All of the words, bigrams, and sequences in the summary are taken directly from the original text. This means the summary is highly faithful to the original in terms of word choice and order.
-# - **Low recall (~13.5%)**: The summary only includes a small portion of the original text, indicating a significant reduction in content. This could be because the summary is intentionally short.
-# - **F1-scores (~0.239)**: The F1-scores reflect the balance between precision and recall. Since precision is perfect but recall is low, the F1-scores are relatively low.
-# 
-# ### **Summary of Findings:**
-# - The summarization model generates summaries that are **very precise**, ensuring that the words and phrases used are accurately drawn from the original text.
-# - However, the **low recall** suggests that the summaries omit a large portion of the original content, making them very condensed.
-# - If your goal is to produce **short, concise summaries**, this level of condensation may be ideal. On the other hand, if you'd like to retain more of the original content, you may need to **increase the summary length** or adjust the model's parameters.
+### **ROUGE-1:**
+- **Precision = 1.0**: This indicates that 100% of the unigrams (individual words) in the summary are found in the original text. In other words, all the words in the summary are present in the original.
+- **Recall = 0.136 (approx)**: Only about 13.6% of the unigrams from the original text are included in the summary, meaning the summary is quite condensed.
+- **F1-Score = 0.239 (approx)**: This score represents the harmonic mean between precision and recall, balancing both metrics. While precision is perfect, the relatively low recall pulls the F1-score down.
 
+### **ROUGE-2:**
+- **Precision = 1.0**: All the bigrams (pairs of consecutive words) in the summary appear in the original text.
+- **Recall = 0.134 (approx)**: Only about 13.4% of the bigrams from the original text are present in the summary, indicating that the bigram coverage of the original content is limited.
+- **F1-Score = 0.236 (approx)**: This score reflects the balance between precision and recall for bigrams. Similar to ROUGE-1, the perfect precision is offset by low recall.
+
+### **ROUGE-L:**
+- **Precision = 1.0**: All of the longest common subsequences (chunks of text that maintain word order) in the summary are present in the original text.
+- **Recall = 0.136 (approx)**: About 13.6% of the original text's sequences are included in the summary, again showing that the summary is highly condensed.
+- **F1-Score = 0.239 (approx)**: This score balances precision and recall for subsequences, similar to the unigrams and bigrams.
+
+### **Interpretation:**
+- **Perfect precision (1.0)**: All of the words, bigrams, and sequences in the summary are taken directly from the original text. This means the summary is highly faithful to the original in terms of word choice and order.
+- **Low recall (~13.5%)**: The summary only includes a small portion of the original text, indicating a significant reduction in content. This could be because the summary is intentionally short.
+- **F1-scores (~0.239)**: The F1-scores reflect the balance between precision and recall. Since precision is perfect but recall is low, the F1-scores are relatively low.
+
+### **Summary of Findings:**
+- The summarization model generates summaries that are **very precise**, ensuring that the words and phrases used are accurately drawn from the original text.
+- However, the **low recall** suggests that the summaries omit a large portion of the original content, making them very condensed.
+- If your goal is to produce **short, concise summaries**, this level of condensation may be ideal. On the other hand, if you'd like to retain more of the original content, you may need to **increase the summary length** or adjust the model's parameters.
+"""
 
 def batch_summarization(df, batch_size=32, num_beams=2, device='cpu'):
     """
-    Summarizes the text in batches to manage memory and computation,
-    leveraging GPU and batching.
+    Summarizes the text in batches to manage memory and computation, leveraging GPU and batching.
 
     Args:
-    df (DataFrame): The input DataFrame containing the
-                    'Cleaned Summary' column.
+    df (DataFrame): The input DataFrame containing the 'Cleaned Summary' column.
     batch_size (int): Number of rows to process in each batch.
     num_beams (int): Number of beams for beam search.
     device (str): Device to run the model on ('cpu' or 'cuda').
@@ -537,32 +516,180 @@ def batch_summarization(df, batch_size=32, num_beams=2, device='cpu'):
 
     for i in tqdm(range(0, len(df), batch_size)):
         batch_df = df.iloc[i:i+batch_size]
-        # Extract the batch of texts
-        texts = batch_df['Cleaned Summary'].tolist()
-        # Summarize the batch
-        summaries = summarize_batch(texts, num_beams=num_beams, device=device)
-        # Update the DataFrame with the summarized text
-        df.loc[batch_df.index, 'Summarized_Text'] = summaries
+        texts = batch_df['Cleaned Summary'].tolist()  # Extract the batch of texts
+        summaries = summarize_batch(texts, num_beams=num_beams, device=device)  # Summarize the batch
+        df.loc[batch_df.index, 'Summarized_Text'] = summaries  # Update the DataFrame with the summarized text
 
         print(f"Processed batch {i} to {i+batch_size}")
 
     return df
 
-
 # Summarize the text in batches
 data = batch_summarization(data, batch_size=32, num_beams=2, device=device)
 
-
 # Display the first few summarized texts
 data[['Cleaned Summary', 'Summarized_Text']].head()
-
 
 # Save summarized book summary data to drive from google colab
 file_path = 'drive/MyDrive/summarized_book_summary.csv'
 data.to_csv(file_path, sep='\t',
             index=False, encoding='utf-8')
 
-
 # # Save summarized book summary data to local system
 # data.to_csv('summarized_book_summary.csv', sep='\t',
 #             index=False, encoding='utf-8')
+
+"""## Step 3: Computer Vision Component"""
+
+# import google drive to use gpu for this section
+from google.colab import drive
+drive.mount('/content/drive')
+
+# install the necessary libraries
+!pip install -q diffusers transformers torch
+
+# import libraries
+import os
+from tqdm import tqdm
+from PIL import Image
+import pandas as pd
+import matplotlib.pyplot as plt
+import torch
+from diffusers import StableDiffusionPipeline
+
+# Load dataset from csv file from drive for google colab
+file_path = 'drive/MyDrive/summarized_book_summary.csv'
+data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
+
+# # Load dataset from local csv file
+# data = pd.read_csv('summarized_book_summary.csv', sep='\t', encoding='utf-8')
+
+# Check if a GPU is available, otherwise fall back to CPU
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Load the pre-trained Stable Diffusion model
+pipe = StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4",
+                                               torch_dtype=torch.float16)\
+                                               .to(device)
+
+# Ensure the output folder exists
+output_folder = "drive/MyDrive/generated_images"
+os.makedirs(output_folder, exist_ok=True)
+
+def text_to_image(text, num_images_per_prompt=1, height=256, width=256,
+                  pipe=None, device="cpu"):
+    """
+    Generates an image from the provided text using the Stable Diffusion
+    pipeline.
+
+    Args:
+        text (str): The text description to convert into an image.
+        num_images_per_prompt (int, optional): The number of images to generate
+                                               per prompt. Defaults to 1.
+        height (int, optional): The desired height of the generated image.
+                                Defaults to 256.
+        width (int, optional): The desired width of the generated image.
+                               Defaults to 256.
+        pipe (StableDiffusionPipeline, optional): The Stable Diffusion model
+                                                  pipeline. If not provided, a
+                                                  default model will be loaded.
+        device (str, optional): The device to use for inference (e.g., 'cpu',
+                                'cuda'). Defaults to 'cpu'.
+
+    Returns:
+        image (PIL Image): Generated image.
+    """
+
+    if pipe is None:
+        # Load a default Stable Diffusion model if not provided
+        pipe = StableDiffusionPipeline.from_pretrained(
+            "CompVis/stable-diffusion-v1-4", torch_dtype=torch.float16)\
+            .to(device)
+
+    # Generate the image
+    image = pipe(text, num_images_per_prompt=num_images_per_prompt,
+                 height=height, width=width).images[0]
+
+    return image
+
+def batch_text_to_images(df, pipe, batch_size=32, start_index=0,
+                         stop_index=None, num_images_per_prompt=1, height=256,
+                         width=256, device="cpu",
+                         output_folder="generated_images"):
+    """
+    Generates images in batches from a DataFrame containing summarized text and
+    saves them to the specified output folder.
+
+    Args:
+        df (pandas.DataFrame): The DataFrame containing the summarized text in a
+                               column named 'Summarized_Text'.
+        pipe (StableDiffusionPipeline): The pre-trained Stable Diffusion model
+                                        pipeline used for image generation.
+        batch_size (int, optional): The number of rows to process in each batch.
+                                    Defaults to 32.
+        start_index (int, optional): The starting index for iterating through
+                                     the DataFrame. Defaults to 0.
+        stop_index (int, optional): The ending index for iterating through the
+                                    DataFrame (exclusive). If not provided,
+                                    iterates through the entire DataFrame.
+        num_images_per_prompt (int, optional): The number of images to generate
+                                                for each summarized text entry.
+                                                Defaults to 1.
+        height (int, optional): The desired height of the generated images.
+                                Defaults to 256.
+        width (int, optional): The desired width of the generated images.
+                               Defaults to 256.
+        device (str, optional): The device to use for inference (e.g., 'cpu',
+                                'cuda'). Defaults to 'cpu'.
+        output_folder (str, optional): The path to the output folder where
+                                       generated images will be saved.
+                                       Defaults to 'generated_images'.
+
+    Raises:
+        Exception: Any exception that occurs during image generation for a
+                   particular index in the DataFrame will be printed.
+    """
+    if not stop_index:
+      stop_index = len(df)
+
+    # Loop through the dataframe in batches
+    for i in tqdm(range(start_index, stop_index, batch_size),
+                  desc="Generating Images"):
+        batch_df = df.iloc[i:i+batch_size]
+        for idx, row in batch_df.iterrows():
+            try:
+                # Generate the image from the summarized text
+                img = text_to_image(row['Summarized_Text'],
+                                    num_images_per_prompt=num_images_per_prompt,
+                                    height=height, width=width, pipe=pipe,
+                                    device=device)
+
+                # Save the image with the index as the filename
+                img.save(os.path.join(output_folder, f"{idx}_summary.png"))
+            except Exception as e:
+                print(f"Error generating image for index {idx}: {e}")
+
+        print(f"Processed batch {i} to {i+batch_size}")
+
+def display_image(image):
+    """
+    Display the generated image using matplotlib.
+
+    Args:
+    image (PIL Image): The image to display.
+    """
+    plt.imshow(image)
+    plt.axis("off")
+    plt.show()
+
+# Example usage with a sample text
+sample_text = data.loc[0, 'Summarized_Text']
+
+# Generate image for sample text
+sample_image = text_to_image(text, pipe=pipe, device=device)
+
+# Display the generated image
+display_image(sample_image)
+
+# Example usage with your DataFrame
+batch_text_to_images(data, pipe=pipe, device=device, stop_index=1000)
