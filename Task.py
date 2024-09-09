@@ -3,8 +3,11 @@
 
 # # DataCoLab Task Assignment
 
-# ## Step 1: Data Preprocessing and EDA
+## Step 1: Data Preprocessing and EDA
 
+# import google drive to use gpu for this section
+from google.colab import drive
+drive.mount('/content/drive')
 
 # Import libraries
 import re
@@ -24,13 +27,23 @@ UNKNOWN_AUTHOR = 'Unknown'
 """### Load dataset"""
 
 # header for dataset
-header = ['Wikipedia article ID', 'Freebase ID', 'Book title', 'Author',
-          'Publication date', 'Book genres (Freebase ID:name tuples)',
-          'Plot summary']
+header = ['Wikipedia_Article_ID', 'Freebase_ID', 'Book_Title', 'Author',
+          'Publication_date', 'Book_Genres_(Freebase_ID:name_tuples)',
+          'Plot_Summary']
 
-# Load dataset from text file
-data = pd.read_csv('booksummaries.txt', sep='\t', header=None,
+# Load dataset from text file in google drive
+file_path = 'drive/MyDrive/booksummaries.txt'
+data = pd.read_csv(file_path, sep='\t', header=None,
                    names=header, encoding='utf-8')
+
+# # header for dataset
+# header = ['Wikipedia_Article_ID', 'Freebase_ID', 'Book_Title', 'Author',
+#           'Publication_date', 'Book_Genres_(Freebase_ID:name_tuples)',
+#           'Plot_Summary']
+
+# # Load dataset from text file in local system
+# data = pd.read_csv('booksummaries.txt', sep='\t', header=None,
+#                    names=header, encoding='utf-8')
 
 # Display sample of data
 data.head()
@@ -40,9 +53,10 @@ print(f"Shape of dataset: {data.shape}")
 
 """### Preprocess Section"""
 
-# # Drop "Freebase ID" column cause that values are unique and useless
-data = data.drop("Wikipedia article ID", axis=1)
-data = data.drop("Freebase ID", axis=1)
+# # Drop "Wikipedia article ID", "Freebase_ID" column cause that values are
+# # unique and useless
+data = data.drop("Wikipedia_Article_ID", axis=1)
+data = data.drop("Freebase_ID", axis=1)
 
 # Add "Index" column by reset it
 data = data.reset_index()
@@ -52,18 +66,190 @@ data.rename(columns={'index': 'Index'}, inplace=True)
 for i in tqdm(range(len(data))):
     try:
         genres_dict = json.loads(
-            data.loc[i, 'Book genres (Freebase ID:name tuples)'])
+            data.loc[i, 'Book_Genres_(Freebase_ID:name_tuples)'])
         if isinstance(genres_dict, dict):
-            data.at[i, 'Book genres (Freebase ID:name tuples)'] = tuple(
+            data.at[i, 'Book_Genres_(Freebase_ID:name_tuples)'] = tuple(
                 genres_dict.values())
         else:
-            data.at[i, 'Book genres (Freebase ID:name tuples)'] = np.nan
+            data.at[i, 'Book_Genres_(Freebase_ID:name_tuples)'] = np.nan
     # Handle NaN values and JSON decoding errors
     except (TypeError, json.JSONDecodeError):
         continue
 
-data.rename(columns={'Book genres (Freebase ID:name tuples)': 'Book genres'},
+data.rename(columns={'Book_Genres_(Freebase_ID:name_tuples)': 'Book_Genres'},
             inplace=True)
+
+"""### Predict book genres uses ML"""
+
+# import libraries
+import re
+import string
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from nltk.stem import PorterStemmer
+from nltk.corpus import stopwords
+
+# Preprocess plot summaries
+def preprocess_text(text):
+    """
+    Preprocess plot summaries
+    """
+    # # Flatten tuples if necessary
+    # if isinstance(text, tuple):
+    #     text = ' '.join(text)
+
+    # Convert to lowercase
+    text = text.lower()
+
+    # Remove punctuation
+    text = text.translate(str.maketrans('', '', string.punctuation))
+
+    # Remove numbers
+    text = re.sub(r'\d+', '', text)
+
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text)
+
+    # Remove special characters
+    text = re.sub(r'[^\w\s]', '', text)
+
+    # Remove stop words
+    text = ' '.join([word for word in text.split() if word not in stopwords.words('english')])
+
+    # Stem words
+    stemmer = PorterStemmer()
+    text = ' '.join([stemmer.stem(word) for word in text.split()])
+
+    return text
+
+for index, row in tqdm(data.iterrows()):
+    data.loc[index, 'Clean_Plot_Summary'] = preprocess_text(row['Plot_Summary'])
+
+# save checkpoint_book_summary
+file_path = 'drive/MyDrive/checkpoint_book_summary.csv'
+data.to_csv(file_path, sep='\t',
+            index=False, encoding='utf-8')
+
+# from here because we want to use ML, we get copy from data
+df = data.copy(deep=True)
+
+# Filter rows with non-null genres
+df = df[df['Book_Genres'].notnull()]
+
+# Create a TF-IDF vectorizer
+vectorizer = TfidfVectorizer()
+X = vectorizer.fit_transform(df['Clean_Plot_Summary'])
+
+# Extract genre labels from tuples (if applicable)
+if isinstance(df['Book_Genres'][0], tuple):
+    df['Book_Genres'] = df['Book_Genres'].apply(lambda x: '|'.join(x))
+
+# Create a label encoder to handle multi-word genres
+le = LabelEncoder()
+y_encoded = le.fit_transform(df['Book_Genres'])
+
+# Create a one-hot encoder
+ohe = OneHotEncoder(sparse_output=False)
+y_onehot = ohe.fit_transform(y_encoded.reshape(-1, 1))
+
+# Split into training and testing sets
+X_train, X_test, y_train_encoded, y_test_encoded = train_test_split(X, y_onehot, test_size=0.2, random_state=42)
+
+print(f"X_train shape:         {X_train.shape}")
+print(f"y_train_encoded shape: {y_train_encoded.shape}")
+print(f"X_test shape:          {X_test.shape}")
+print(f"y_test_encoded shape:  {y_test_encoded.shape}")
+
+# Extract class labels from one-hot encoding
+# (assuming each row represents a single genre)
+# Get the index of the maximum value in each row
+y_train = y_train_encoded.argmax(axis=1)
+y_test = y_test_encoded.argmax(axis=1)
+
+# Create and train a Naive Bayes classifier
+clf = MultinomialNB()
+clf.fit(X_train, y_train)
+
+# Predict genres for the testing set
+y_pred_encoded = clf.predict(X_test)
+y_pred = le.inverse_transform(y_pred_encoded)
+
+# Evaluate the model
+accuracy = accuracy_score(y_test, y_pred)
+print("Accuracy:", accuracy)
+
+# Predict genres for books with missing values
+missing_genres_index = data[data['Book_Genres'].isnull()].index
+X_missing = vectorizer.transform(data.loc[missing_genres_index, 'Clean_Plot_Summary'])
+predicted_genres = clf.predict(X_missing)
+
+# Fill in missing genres
+df.loc[missing_genres_index, 'Book genres'] = le.inverse_transform(predicted_genres)
+
+"""### Fill Author and Publication date missing values with Google Book API"""
+
+import os
+import requests
+import numpy as np
+
+def get_book_info(title, author=None):
+    """Fetches book information from the Google Books API for a given title and author.
+
+    Args:
+        title (str): The title of the book to search for.
+        author (str, optional): The author of the book. If provided, the search query will be refined.
+
+    Returns:
+        dict: A dictionary containing book information (title, author, publication date)
+            if found. Returns None if no results are found.
+
+    Raises:
+        Exception: Raises an exception if there's an error fetching data from the API.
+    """
+
+    api_key = os.getenv("GOOGLE_BOOKS_API_KEY")
+    if not api_key:
+      raise ValueError("Missing environment variable: GOOGLE_BOOKS_API_KEY")
+
+    query_params = {"q": title}
+    if author:
+      query_params["author"] = author
+
+    url = f"https://www.googleapis.com/books/v1/volumes?{urlencode(query_params)}&maxResults=1&key={api_key}"
+
+    try:
+      response = requests.get(url)
+      response.raise_for_status()  # Raise an exception for non-200 status codes
+    except requests.exceptions.RequestException as e:
+      raise Exception(f"Error fetching book information: {e}") from e
+
+    data = response.json()
+    if 'items' in data:
+      book_data = data['items'][0]['volumeInfo']
+      return {
+        'title': book_data['title'],
+        'author': book_data['authors'][0] if 'authors' in book_data else np.nan,
+        'publication_date': book_data['publishedDate'] if 'publishedDate' in book_data else np.nan,
+      }
+    else:
+      return None
+
+# Fill Author and Publication date missing values with Google Book API
+for index, row in data.iterrows():
+    # Check if either Author or Publication date is missing
+    if pd.isnull(row['Author']) or pd.isnull(row['Publication date']):
+        # Use the existing author if available, otherwise send None
+        author = row['Author'] if not pd.isnull(row['Author']) else None
+        book_info = get_book_info(row['Book title'], author)
+        if book_info:
+            data.at[index, 'Author'] = book_info['author']
+            data.at[index, 'Publication date'] = book_info['publication_date']
+
+"""### end of handle missing values"""
 
 def extract_year(pub_date):
     """
@@ -116,7 +302,7 @@ def clean_text(text):
     return text
 
 
-data['Cleaned Summary'] = data['Plot summary'].apply(clean_text)
+data['Cleaned_Summary'] = data['Plot_Summary'].apply(clean_text)
 
 # Drop rows where 'Cleaned Summary' is NaN
 data = data.dropna(subset=['Cleaned Summary'])
