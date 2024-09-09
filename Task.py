@@ -247,6 +247,7 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.preprocessing import MultiLabelBinarizer
 import pandas as pd
+import numpy as np
 
 # Load dataset from csv file from drive for google colab
 file_path = 'drive/MyDrive/summarized_book_summary.csv'
@@ -256,11 +257,11 @@ data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
 # Convert string representation of tuples into actual tuples
 data['Book genres'] = data['Book genres'].apply(lambda x: eval(x) if pd.notnull(x) else x)
 
-df = data.copy(deep=True)
-
-for index, row in df.iterrows():
+for index, row in data.iterrows():
     if row['Book genres'][0] == 'Unknown':
-        df.loc[index, 'Book genres'] = np.nan
+        data.loc[index, 'Book genres'] = np.nan
+
+df = data.copy(deep=True)
 
 # Filter rows where genres are not null for training
 df_train = df[df['Book genres'].notnull()]
@@ -357,6 +358,13 @@ for epoch in range(EPOCHS):
     train_loss = train_epoch(model, dataloader, loss_fn, optimizer, device)
     print(f'Train loss: {train_loss}')
 
+# Save the model after training
+model_path = "drive/MyDrive/bert_trained_model"
+model.save_pretrained(model_path)
+
+# Save the tokenizer as well
+tokenizer.save_pretrained(model_path)
+
 # Predict missing genres (incomplete entries)
 def predict_genres(model, summary, tokenizer, max_len):
     encoding = tokenizer.encode_plus(
@@ -381,11 +389,15 @@ def predict_genres(model, summary, tokenizer, max_len):
 for idx, row in data[data['Book genres'].isna()].iterrows():
     summary = row['Summarized_Text']
     predicted_probs = predict_genres(model, summary, tokenizer, MAX_LEN)
-    predicted_labels = mlb.inverse_transform(predicted_probs > 0.5)  # Set a threshold
+    predicted_labels = mlb.inverse_transform(predicted_probs > 0.1)  # Set a threshold
     df.at[idx, 'Book genres'] = predicted_labels[0]  # Assign the predicted tuple of genres
 
 # Save the updated dataset
-df.to_csv('updated_dataset.csv', index=False)
+file_path = 'drive/MyDrive/genre_filled_dataset.csv'
+data.to_csv(file_path, sep='\t',
+            index=False, encoding='utf-8')
+
+data.head(20)
 
 """### Fill Author and Publication date missing values with Google Book API"""
 
