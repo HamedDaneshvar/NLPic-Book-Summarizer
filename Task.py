@@ -134,6 +134,12 @@ file_path = 'drive/MyDrive/checkpoint_book_summary.csv'
 data.to_csv(file_path, sep='\t',
             index=False, encoding='utf-8')
 
+# Load dataset from csv file
+file_path = 'drive/MyDrive/checkpoint_book_summary.csv'
+data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
+
+data[5:15]
+
 # from here because we want to use ML, we get copy from data
 df = data.copy(deep=True)
 
@@ -189,6 +195,197 @@ predicted_genres = clf.predict(X_missing)
 
 # Fill in missing genres
 df.loc[missing_genres_index, 'Book genres'] = le.inverse_transform(predicted_genres)
+
+"""#### method 2 for predicted genres"""
+
+# get the distinct book genres
+unique_genres = dict()
+for index, row in data.iterrows():
+    if pd.isnull(row['Book_Genres']):
+        continue
+    for genre in row['Book_Genres']:
+        unique_genres[genre] = unique_genres.get(genre, 0) + 1
+
+top_genres = [k for k, v in sorted(unique_genres.items(), key=lambda x: x[1], reverse=True) if v > 50]
+
+total_genres = [k for k, v in sorted(unique_genres.items(), key=lambda x: x[1], reverse=True)]
+
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+# Load pre-trained BERT tokenizer and model
+tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+model = AutoModelForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=len(unique_genres))
+
+# Load pre-trained BERT tokenizer and model
+tokenizer = AutoTokenizer.from_pretrained("bert-large-uncased")
+model = AutoModelForSequenceClassification.from_pretrained("bert-large-uncased", num_labels=len(total_genres))
+
+data.head(15)
+
+data.loc[7, 'Cleaned Summary']
+
+# Preprocess plot summary
+text = data.loc[7, 'Plot summary']
+inputs = tokenizer(text, return_tensors="pt")
+
+# Get predictions
+outputs = model(**inputs)
+logits = outputs.logits
+predictions = torch.argmax(logits, dim=-1)
+
+# Map predicted index to genre
+predicted_genre = unique_genres[predictions.item()]
+print("Predicted genre:", predicted_genre)
+
+"""#### method 3: train bert model based on my data"""
+
+import torch
+from transformers import BertTokenizer, BertForSequenceClassification
+from torch.utils.data import DataLoader, Dataset
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.preprocessing import MultiLabelBinarizer
+import pandas as pd
+
+# Load dataset from csv file from drive for google colab
+file_path = 'drive/MyDrive/summarized_book_summary.csv'
+data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
+
+# Preprocessing: Genres are stored as tuples
+# Convert string representation of tuples into actual tuples
+data['Book genres'] = data['Book genres'].apply(lambda x: eval(x) if pd.notnull(x) else x)
+
+df = data.copy(deep=True)
+
+for index, row in df.iterrows():
+    if row['Book genres'][0] == 'Unknown':
+        df.loc[index, 'Book genres'] = np.nan
+
+# Filter rows where genres are not null for training
+df_train = df[df['Book genres'].notnull()]
+
+# Binarize the genres using MultiLabelBinarizer for training data
+mlb = MultiLabelBinarizer()
+genres_binarized = mlb.fit_transform(df_train['Book genres'])  # Transform tuples into binary vectors
+
+# Prepare Dataset Class
+class BookDataset(Dataset):
+    def __init__(self, summaries, labels, tokenizer, max_len):
+        self.summaries = summaries
+        self.labels = labels
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+
+    def __len__(self):
+        return len(self.summaries)
+
+    def __getitem__(self, idx):
+        summary = str(self.summaries[idx])
+        label = self.labels[idx]
+
+        encoding = self.tokenizer.encode_plus(
+            summary,
+            max_length=self.max_len,
+            add_special_tokens=True,
+            return_token_type_ids=False,
+            padding='max_length',
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
+
+        return {
+            'summary': summary,
+            'input_ids': encoding['input_ids'].flatten(),
+            'attention_mask': encoding['attention_mask'].flatten(),
+            'labels': torch.tensor(label, dtype=torch.float)
+        }
+
+# Load pre-trained BERT model
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=len(mlb.classes_))
+
+# Set up Dataset and DataLoader
+MAX_LEN = 512
+BATCH_SIZE = 16
+
+dataset = BookDataset(
+    summaries=df_train['Summarized_Text'].values,
+    labels=genres_binarized,
+    tokenizer=tokenizer,
+    max_len=MAX_LEN
+)
+
+dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+# Define optimizer, loss function (Binary Cross Entropy for multi-label), and scheduler
+optimizer = optim.AdamW(model.parameters(), lr=2e-5)
+loss_fn = nn.BCEWithLogitsLoss()
+
+# Training Loop
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+model.to(device)
+
+def train_epoch(model, data_loader, loss_fn, optimizer, device):
+    model = model.train()
+    losses = []
+
+    for d in data_loader:
+        input_ids = d['input_ids'].to(device)
+        attention_mask = d['attention_mask'].to(device)
+        labels = d['labels'].to(device)
+
+        outputs = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask
+        )
+
+        logits = outputs.logits
+        loss = loss_fn(logits, labels)
+        losses.append(loss.item())
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    return sum(losses) / len(losses)
+
+# Train the model (you can further enhance with validation logic)
+EPOCHS = 5
+for epoch in range(EPOCHS):
+    print(f'Epoch {epoch + 1}/{EPOCHS}')
+    train_loss = train_epoch(model, dataloader, loss_fn, optimizer, device)
+    print(f'Train loss: {train_loss}')
+
+# Predict missing genres (incomplete entries)
+def predict_genres(model, summary, tokenizer, max_len):
+    encoding = tokenizer.encode_plus(
+        summary,
+        max_length=max_len,
+        add_special_tokens=True,
+        return_token_type_ids=False,
+        padding='max_length',
+        return_attention_mask=True,
+        return_tensors='pt'
+    )
+
+    input_ids = encoding['input_ids'].to(device)
+    attention_mask = encoding['attention_mask'].to(device)
+
+    output = model(input_ids=input_ids, attention_mask=attention_mask)
+    probabilities = torch.sigmoid(output.logits)
+
+    return probabilities.detach().cpu().numpy()
+
+# Predict missing genres and fill missing values
+for idx, row in data[data['Book genres'].isna()].iterrows():
+    summary = row['Summarized_Text']
+    predicted_probs = predict_genres(model, summary, tokenizer, MAX_LEN)
+    predicted_labels = mlb.inverse_transform(predicted_probs > 0.5)  # Set a threshold
+    df.at[idx, 'Book genres'] = predicted_labels[0]  # Assign the predicted tuple of genres
+
+# Save the updated dataset
+df.to_csv('updated_dataset.csv', index=False)
 
 """### Fill Author and Publication date missing values with Google Book API"""
 
