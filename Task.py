@@ -9,32 +9,47 @@
 from google.colab import drive
 drive.mount('/content/drive')
 
+!pip install -q python-dotenv
+
 # Import libraries
+import os
 import re
 import json
+import time
 import string
 from tqdm import tqdm
 from collections import Counter
+import requests
+from urllib.parse import urlencode
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-# from nltk.corpus import stopwords
+from dotenv import load_dotenv, find_dotenv
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # CONSTANTS
 UNKNOWN_GENRE = ('Unknown',)
 UNKNOWN_AUTHOR = 'Unknown'
+UNKNOWN_PUBLICATION_DATE = 'Unknown'
 
-"""### Load dataset"""
+"""#### load env variable"""
+
+_ = load_dotenv(find_dotenv())
+
+"""### Load dataset from google drive"""
 
 # header for dataset
 header = ['Wikipedia_Article_ID', 'Freebase_ID', 'Book_Title', 'Author',
-          'Publication_date', 'Book_Genres_(Freebase_ID:name_tuples)',
+          'Publication_Date', 'Book_Genres_(Freebase_ID:name_tuples)',
           'Plot_Summary']
 
 # Load dataset from text file in google drive
 file_path = 'drive/MyDrive/booksummaries.txt'
 data = pd.read_csv(file_path, sep='\t', header=None,
                    names=header, encoding='utf-8')
+
+"""### Load dataset from local system"""
 
 # # header for dataset
 # header = ['Wikipedia_Article_ID', 'Freebase_ID', 'Book_Title', 'Author',
@@ -55,14 +70,14 @@ print(f"Shape of dataset: {data.shape}")
 
 # # Drop "Wikipedia article ID", "Freebase_ID" column cause that values are
 # # unique and useless
-data = data.drop("Wikipedia_Article_ID", axis=1)
-data = data.drop("Freebase_ID", axis=1)
+# data = data.drop("Wikipedia_Article_ID", axis=1)
+# data = data.drop("Freebase_ID", axis=1)
 
 # Add "Index" column by reset it
 data = data.reset_index()
 data.rename(columns={'index': 'Index'}, inplace=True)
 
-# convert all genres values into tuple
+# convert all genres values into tuple and remove Freebase_ID
 for i in tqdm(range(len(data))):
     try:
         genres_dict = json.loads(
@@ -79,331 +94,38 @@ for i in tqdm(range(len(data))):
 data.rename(columns={'Book_Genres_(Freebase_ID:name_tuples)': 'Book_Genres'},
             inplace=True)
 
-"""### Predict book genres uses ML"""
-
-# import libraries
-import re
-import string
-import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-from nltk.stem import PorterStemmer
-from nltk.corpus import stopwords
-
-# Preprocess plot summaries
-def preprocess_text(text):
-    """
-    Preprocess plot summaries
-    """
-    # # Flatten tuples if necessary
-    # if isinstance(text, tuple):
-    #     text = ' '.join(text)
-
-    # Convert to lowercase
-    text = text.lower()
-
-    # Remove punctuation
-    text = text.translate(str.maketrans('', '', string.punctuation))
-
-    # Remove numbers
-    text = re.sub(r'\d+', '', text)
-
-    # Remove extra whitespace
-    text = re.sub(r'\s+', ' ', text)
-
-    # Remove special characters
-    text = re.sub(r'[^\w\s]', '', text)
-
-    # Remove stop words
-    text = ' '.join([word for word in text.split() if word not in stopwords.words('english')])
-
-    # Stem words
-    stemmer = PorterStemmer()
-    text = ' '.join([stemmer.stem(word) for word in text.split()])
-
-    return text
-
-for index, row in tqdm(data.iterrows()):
-    data.loc[index, 'Clean_Plot_Summary'] = preprocess_text(row['Plot_Summary'])
-
-# save checkpoint_book_summary
-file_path = 'drive/MyDrive/checkpoint_book_summary.csv'
-data.to_csv(file_path, sep='\t',
-            index=False, encoding='utf-8')
-
-# Load dataset from csv file
-file_path = 'drive/MyDrive/checkpoint_book_summary.csv'
-data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
-
-data[5:15]
-
-# from here because we want to use ML, we get copy from data
-df = data.copy(deep=True)
-
-# Filter rows with non-null genres
-df = df[df['Book_Genres'].notnull()]
-
-# Create a TF-IDF vectorizer
-vectorizer = TfidfVectorizer()
-X = vectorizer.fit_transform(df['Clean_Plot_Summary'])
-
-# Extract genre labels from tuples (if applicable)
-if isinstance(df['Book_Genres'][0], tuple):
-    df['Book_Genres'] = df['Book_Genres'].apply(lambda x: '|'.join(x))
-
-# Create a label encoder to handle multi-word genres
-le = LabelEncoder()
-y_encoded = le.fit_transform(df['Book_Genres'])
-
-# Create a one-hot encoder
-ohe = OneHotEncoder(sparse_output=False)
-y_onehot = ohe.fit_transform(y_encoded.reshape(-1, 1))
-
-# Split into training and testing sets
-X_train, X_test, y_train_encoded, y_test_encoded = train_test_split(X, y_onehot, test_size=0.2, random_state=42)
-
-print(f"X_train shape:         {X_train.shape}")
-print(f"y_train_encoded shape: {y_train_encoded.shape}")
-print(f"X_test shape:          {X_test.shape}")
-print(f"y_test_encoded shape:  {y_test_encoded.shape}")
-
-# Extract class labels from one-hot encoding
-# (assuming each row represents a single genre)
-# Get the index of the maximum value in each row
-y_train = y_train_encoded.argmax(axis=1)
-y_test = y_test_encoded.argmax(axis=1)
-
-# Create and train a Naive Bayes classifier
-clf = MultinomialNB()
-clf.fit(X_train, y_train)
-
-# Predict genres for the testing set
-y_pred_encoded = clf.predict(X_test)
-y_pred = le.inverse_transform(y_pred_encoded)
-
-# Evaluate the model
-accuracy = accuracy_score(y_test, y_pred)
-print("Accuracy:", accuracy)
-
-# Predict genres for books with missing values
-missing_genres_index = data[data['Book_Genres'].isnull()].index
-X_missing = vectorizer.transform(data.loc[missing_genres_index, 'Clean_Plot_Summary'])
-predicted_genres = clf.predict(X_missing)
-
-# Fill in missing genres
-df.loc[missing_genres_index, 'Book genres'] = le.inverse_transform(predicted_genres)
-
-"""#### method 2 for predicted genres"""
-
-# get the distinct book genres
-unique_genres = dict()
-for index, row in data.iterrows():
-    if pd.isnull(row['Book_Genres']):
-        continue
-    for genre in row['Book_Genres']:
-        unique_genres[genre] = unique_genres.get(genre, 0) + 1
-
-top_genres = [k for k, v in sorted(unique_genres.items(), key=lambda x: x[1], reverse=True) if v > 50]
-
-total_genres = [k for k, v in sorted(unique_genres.items(), key=lambda x: x[1], reverse=True)]
-
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
-# Load pre-trained BERT tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-model = AutoModelForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=len(unique_genres))
-
-# Load pre-trained BERT tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained("bert-large-uncased")
-model = AutoModelForSequenceClassification.from_pretrained("bert-large-uncased", num_labels=len(total_genres))
-
-data.head(15)
-
-data.loc[7, 'Cleaned Summary']
-
-# Preprocess plot summary
-text = data.loc[7, 'Plot summary']
-inputs = tokenizer(text, return_tensors="pt")
-
-# Get predictions
-outputs = model(**inputs)
-logits = outputs.logits
-predictions = torch.argmax(logits, dim=-1)
-
-# Map predicted index to genre
-predicted_genre = unique_genres[predictions.item()]
-print("Predicted genre:", predicted_genre)
-
-"""#### method 3: train bert model based on my data"""
-
-import torch
-from transformers import BertTokenizer, BertForSequenceClassification
-from torch.utils.data import DataLoader, Dataset
-import torch.nn as nn
-import torch.optim as optim
-from sklearn.preprocessing import MultiLabelBinarizer
-import pandas as pd
-import numpy as np
-
-# Load dataset from csv file from drive for google colab
-file_path = 'drive/MyDrive/summarized_book_summary.csv'
-data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
-
-# Preprocessing: Genres are stored as tuples
-# Convert string representation of tuples into actual tuples
-data['Book genres'] = data['Book genres'].apply(lambda x: eval(x) if pd.notnull(x) else x)
-
-for index, row in data.iterrows():
-    if row['Book genres'][0] == 'Unknown':
-        data.loc[index, 'Book genres'] = np.nan
-
-df = data.copy(deep=True)
-
-# Filter rows where genres are not null for training
-df_train = df[df['Book genres'].notnull()]
-
-# Binarize the genres using MultiLabelBinarizer for training data
-mlb = MultiLabelBinarizer()
-genres_binarized = mlb.fit_transform(df_train['Book genres'])  # Transform tuples into binary vectors
-
-# Prepare Dataset Class
-class BookDataset(Dataset):
-    def __init__(self, summaries, labels, tokenizer, max_len):
-        self.summaries = summaries
-        self.labels = labels
-        self.tokenizer = tokenizer
-        self.max_len = max_len
-
-    def __len__(self):
-        return len(self.summaries)
-
-    def __getitem__(self, idx):
-        summary = str(self.summaries[idx])
-        label = self.labels[idx]
-
-        encoding = self.tokenizer.encode_plus(
-            summary,
-            max_length=self.max_len,
-            add_special_tokens=True,
-            return_token_type_ids=False,
-            padding='max_length',
-            return_attention_mask=True,
-            return_tensors='pt',
-        )
-
-        return {
-            'summary': summary,
-            'input_ids': encoding['input_ids'].flatten(),
-            'attention_mask': encoding['attention_mask'].flatten(),
-            'labels': torch.tensor(label, dtype=torch.float)
-        }
-
-# Load pre-trained BERT model
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=len(mlb.classes_))
-
-# Set up Dataset and DataLoader
-MAX_LEN = 512
-BATCH_SIZE = 16
-
-dataset = BookDataset(
-    summaries=df_train['Summarized_Text'].values,
-    labels=genres_binarized,
-    tokenizer=tokenizer,
-    max_len=MAX_LEN
-)
-
-dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
-
-# Define optimizer, loss function (Binary Cross Entropy for multi-label), and scheduler
-optimizer = optim.AdamW(model.parameters(), lr=2e-5)
-loss_fn = nn.BCEWithLogitsLoss()
-
-# Training Loop
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-model.to(device)
-
-def train_epoch(model, data_loader, loss_fn, optimizer, device):
-    model = model.train()
-    losses = []
-
-    for d in data_loader:
-        input_ids = d['input_ids'].to(device)
-        attention_mask = d['attention_mask'].to(device)
-        labels = d['labels'].to(device)
-
-        outputs = model(
-            input_ids=input_ids,
-            attention_mask=attention_mask
-        )
-
-        logits = outputs.logits
-        loss = loss_fn(logits, labels)
-        losses.append(loss.item())
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-    return sum(losses) / len(losses)
-
-# Train the model (you can further enhance with validation logic)
-EPOCHS = 5
-for epoch in range(EPOCHS):
-    print(f'Epoch {epoch + 1}/{EPOCHS}')
-    train_loss = train_epoch(model, dataloader, loss_fn, optimizer, device)
-    print(f'Train loss: {train_loss}')
-
-# Save the model after training
-model_path = "drive/MyDrive/bert_trained_model"
-model.save_pretrained(model_path)
-
-# Save the tokenizer as well
-tokenizer.save_pretrained(model_path)
-
-# Predict missing genres (incomplete entries)
-def predict_genres(model, summary, tokenizer, max_len):
-    encoding = tokenizer.encode_plus(
-        summary,
-        max_length=max_len,
-        add_special_tokens=True,
-        return_token_type_ids=False,
-        padding='max_length',
-        return_attention_mask=True,
-        return_tensors='pt'
-    )
-
-    input_ids = encoding['input_ids'].to(device)
-    attention_mask = encoding['attention_mask'].to(device)
-
-    output = model(input_ids=input_ids, attention_mask=attention_mask)
-    probabilities = torch.sigmoid(output.logits)
-
-    return probabilities.detach().cpu().numpy()
-
-# Predict missing genres and fill missing values
-for idx, row in data[data['Book genres'].isna()].iterrows():
-    summary = row['Summarized_Text']
-    predicted_probs = predict_genres(model, summary, tokenizer, MAX_LEN)
-    predicted_labels = mlb.inverse_transform(predicted_probs > 0.1)  # Set a threshold
-    df.at[idx, 'Book genres'] = predicted_labels[0]  # Assign the predicted tuple of genres
-
-# Save the updated dataset
-file_path = 'drive/MyDrive/genre_filled_dataset.csv'
-data.to_csv(file_path, sep='\t',
-            index=False, encoding='utf-8')
-
-data.head(20)
+# Check the Nan value of all columns
+print(data.isna().sum())
 
 """### Fill Author and Publication date missing values with Google Book API"""
 
-import os
-import requests
-import numpy as np
+def clean_title(title):
+    """
+    Clean and sanitize a title for encoding in a URL query parameter.
+
+    Parameters:
+    title (str): The title to be cleaned and formatted.
+
+    Returns:
+    str: The cleaned and formatted title ready for encoding.
+
+    The function performs the following steps to clean the title:
+    1. Removes leading and trailing whitespaces.
+    2. Removes special characters except for letters, digits, spaces, and specified punctuation signs.
+    3. Removes extra whitespaces.
+
+    Example:
+    >>> title = "The //!@#Great Gatsby's   "
+    >>> cleaned_title = clean_title(title)
+    >>> print(cleaned_title)
+    'The Great Gatsby's'
+    """
+    title = title.strip()
+    title = ''.join(char if char.isalnum() or char.isspace() or char in
+        ["'", "-", ",", ":", ";"] else ' ' for char in title)
+    title = ' '.join(title.split())
+
+    return title
 
 def get_book_info(title, author=None):
     """Fetches book information from the Google Books API for a given title and author.
@@ -423,6 +145,8 @@ def get_book_info(title, author=None):
     api_key = os.getenv("GOOGLE_BOOKS_API_KEY")
     if not api_key:
       raise ValueError("Missing environment variable: GOOGLE_BOOKS_API_KEY")
+
+    title = clean_title(title)
 
     query_params = {"q": title}
     if author:
@@ -448,17 +172,62 @@ def get_book_info(title, author=None):
       return None
 
 # Fill Author and Publication date missing values with Google Book API
-for index, row in data.iterrows():
+for index, row in tqdm(data.iterrows()):
     # Check if either Author or Publication date is missing
-    if pd.isnull(row['Author']) or pd.isnull(row['Publication date']):
+    if pd.isnull(row['Author']) or pd.isnull(row['Publication_Date']):
         # Use the existing author if available, otherwise send None
         author = row['Author'] if not pd.isnull(row['Author']) else None
-        book_info = get_book_info(row['Book title'], author)
+        book_info = get_book_info(row['Book_Title'], author)
         if book_info:
             data.at[index, 'Author'] = book_info['author']
-            data.at[index, 'Publication date'] = book_info['publication_date']
+            data.at[index, 'Publication_Date'] = book_info['publication_date']
+        time.sleep(1)
 
-"""### end of handle missing values"""
+# Check the Nan value of 'Author' and 'Publication_Date' columns
+print(data.isna().sum())
+
+# Checkpoint 1 for to save data into drive
+file_path = 'drive/MyDrive/checkpoint1_book_summaries.csv'
+data.to_csv(file_path, sep='\t', index=False, encoding='utf-8')
+
+"""#### Predicted Book Genres with Bert NLP model"""
+
+# Get the distinct book genres
+unique_genres = dict()
+for index, row in data.iterrows():
+    if pd.isnull(row['Book_Genres']):
+        continue
+    for genre in row['Book_Genres']:
+        unique_genres[genre] = unique_genres.get(genre, 0) + 1
+
+total_genres = [k for k, v in sorted(unique_genres.items(), key=lambda x: x[1], reverse=True)]
+
+# Load pre-trained BERT tokenizer and model
+tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+model = AutoModelForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=len(unique_genres))
+
+# Load pre-trained BERT tokenizer and model
+tokenizer = AutoTokenizer.from_pretrained("bert-large-uncased")
+model = AutoModelForSequenceClassification.from_pretrained("bert-large-uncased", num_labels=len(total_genres))
+
+data.head(15)
+
+# Preprocess plot summary
+text = data.loc[7, 'Plot_Summary']
+inputs = tokenizer(text, return_tensors="pt")
+
+# Get predictions
+outputs = model(**inputs)
+logits = outputs.logits
+predictions = torch.argmax(logits, dim=-1)
+
+# Map predicted index to genre
+predicted_genre = total_genres[predictions.item()]
+print("Predicted genre:", predicted_genre)
+
+# Checkpoint 2 for to save data into drive
+file_path = 'drive/MyDrive/checkpoint2_book_summaries.csv'
+data.to_csv(file_path, sep='\t', index=False, encoding='utf-8')
 
 def extract_year(pub_date):
     """
@@ -470,15 +239,15 @@ def extract_year(pub_date):
     return int(pub_date) if isinstance(pub_date, str) and pub_date.isdigit()\
         else np.nan
 
-data['Publication year'] = data['Publication date'].apply(extract_year)
+data['Publication_Year'] = data['Publication_Date'].apply(extract_year)
 
 # Remove duplicate rows
 # Check for duplicates based on a unique identifier or key columns
-duplicates = data.duplicated(subset=['Book title', 'Author'], keep='first')
+duplicates = data.duplicated(subset=['Book_Title', 'Author'], keep='first')
 print(f"Number of duplicate rows: {duplicates.sum()}")
 
 # # Drop duplicates
-data = data.drop_duplicates(subset=['Book title', 'Author'], keep='first')
+data = data.drop_duplicates(subset=['Book_Title', 'Author'], keep='first')
 
 # text cleaning
 # if get an error for this line, you must use `nltk.download()`
@@ -513,16 +282,16 @@ def clean_text(text):
 
 data['Cleaned_Summary'] = data['Plot_Summary'].apply(clean_text)
 
-# Drop rows where 'Cleaned Summary' is NaN
-data = data.dropna(subset=['Cleaned Summary'])
+# Drop rows where 'Cleaned_Summary' is NaN
+data = data.dropna(subset=['Cleaned_Summary'])
 
 # summary length
-data['Summary Length'] = data['Cleaned Summary']\
+data['Summary_Length'] = data['Cleaned_Summary']\
     .apply(lambda x: len(x.split()))
 
 # Detect outliers in Summary_Length
-Q1 = data['Summary Length'].quantile(0.25)
-Q3 = data['Summary Length'].quantile(0.75)
+Q1 = data['Summary_Length'].quantile(0.25)
+Q3 = data['Summary_Length'].quantile(0.75)
 IQR = Q3 - Q1
 lower_bound = Q1 - 1.5 * IQR
 upper_bound = Q3 + 1.5 * IQR
@@ -531,9 +300,9 @@ outliers = data[(data['Summary Length'] < lower_bound) |
                 (data['Summary Length'] > upper_bound)]
 print(f"Number of outliers in Summary Length: {outliers.shape[0]}")
 
-# Remove outliers
-data = data[(data['Summary Length'] >= lower_bound) &
-            (data['Summary Length'] <= upper_bound)]
+# # Remove outliers
+# data = data[(data['Summary Length'] >= lower_bound) &
+#             (data['Summary Length'] <= upper_bound)]
 
 # Fill Author missing values with UNKNOWN_AUTHOR variable because
 # We cannot put anyone's book under the name of another author
@@ -546,7 +315,7 @@ data['Author'].fillna(UNKNOWN_AUTHOR, inplace=True)
 def fill_missing_genres(df, num_modes):
     for author, group in tqdm(df.groupby('Author')):
         if author != UNKNOWN_AUTHOR:
-            genres = [genre for genres in group['Book genres'] if
+            genres = [genre for genres in group['Book_Genres'] if
                       isinstance(genres, tuple) for genre in genres]
             if genres:
                 mode_genres = [genre for genre, _ in Counter(genres)
@@ -554,11 +323,11 @@ def fill_missing_genres(df, num_modes):
                 # We do this because normally can't assign tuple
                 # and we get an error
                 if len(df.loc[(df['Author'] == author) &
-                       (df['Book genres'].isnull()), 'Book genres']) > 0:
-                    for i in data.loc[(data['Author'] == 'Aaron Allston') &
-                                      (data['Book genres'].isnull()),
+                       (df['Book_Genres'].isnull()), 'Book_Genres']) > 0:
+                    for i in data.loc[(data['Author'] == author) &
+                                      (data['Book_Genres'].isnull()),
                                       'Index'].values:
-                        df.at[i, 'Book genres'] = tuple(mode_genres)
+                        df.at[i, 'Book_Genres'] = tuple(mode_genres)
 
     return df
 
@@ -566,12 +335,12 @@ def fill_missing_genres(df, num_modes):
 # Fill missing genres based on author with the 5 most common genres
 data = fill_missing_genres(data, 5)
 
-# Plot a histogram to find out median is better for 'Publication year' or mode
-median = data['Publication year'].median()
-mode = data['Publication year'].mode()[0]
-mean = int(data['Publication year'].mean())
+# Plot a histogram to find out median is better for 'Publication_Year' or mode
+median = data['Publication_Year'].median()
+mode = data['Publication_Year'].mode()[0]
+mean = int(data['Publication_Year'].mean())
 
-plt.hist(data['Publication year'], bins=10, color='skyblue', edgecolor='black')
+plt.hist(data['Publication_Year'], bins=10, color='skyblue', edgecolor='black')
 plt.xlabel('Values')
 plt.ylabel('Frequency')
 plt.title('Histogram of Data')
@@ -589,7 +358,7 @@ plt.legend()
 plt.show()
 
 # Calculate the frequency of each value
-value_counts = data['Publication year'].value_counts()
+value_counts = data['Publication_Year'].value_counts()
 
 # Get the top 10 most frequent values
 top_values = value_counts.head(10)
@@ -605,9 +374,9 @@ plt.show()
 
 # fill Publication Year and Publication date missing value
 # with mode of data based on Top 10 values plot
-mean_year = int(data['Publication year'].mode()[0])
-data['Publication year'].fillna(mean_year, inplace=True)
-data['Publication date'].fillna(mean_year, inplace=True)
+mean_year = int(data['Publication_Year'].mode()[0])
+data['Publication_Year'].fillna(mean_year, inplace=True)
+data['Publication_Date'].fillna(mean_year, inplace=True)
 
 # We can use "Title-Based" method or Pre-Trained NLP Model
 # for Genre Prediction but in this step ignore this method
@@ -618,14 +387,14 @@ def fill_with_unknown_genre(x):
     return UNKNOWN_GENRE if pd.isnull(x) else x
 
 
-data['Book genres'] = data['Book genres'].apply(fill_with_unknown_genre)
+data['Book_Genres'] = data['Book_Genres'].apply(fill_with_unknown_genre)
 
 # Check the Nan value of all columns
 print(data.isna().sum())
 
-# save cleaned data
-data.to_csv('cleaned_book_summary.csv', sep='\t',
-            index=False, encoding='utf-8')
+# Save cleaned data after preprocessing
+file_path = 'drive/MyDrive/cleaned_book_summaries.csv'
+data.to_csv(file_path, sep='\t', index=False, encoding='utf-8')
 
 """### EDA section"""
 
@@ -635,16 +404,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Load dataset from csv file
-data = pd.read_csv('cleaned_book_summary.csv', sep='\t', encoding='utf-8')
+data = pd.read_csv('cleaned_book_summaries.csv', sep='\t', encoding='utf-8')
 
-# convert all genres values into tuple
+# Convert all genres values into tuple
 for i in tqdm(range(len(data))):
     try:
-        genres_tuple = ast.literal_eval(data.loc[i, 'Book genres'])
+        genres_tuple = ast.literal_eval(data.loc[i, 'Book_Genres'])
         if isinstance(genres_tuple, tuple):
-            data.at[i, 'Book genres'] = genres_tuple
+            data.at[i, 'Book_Genres'] = genres_tuple
         else:
-            data.at[i, 'Book genres'] = np.nan
+            data.at[i, 'Book_Genres'] = np.nan
     except (SyntaxError, ValueError):
         continue
 
@@ -653,21 +422,21 @@ def get_genres_distribution(df):
     Calculate the distribution of book genres in the provided DataFrame.
 
     Parameters:
-    df (pandas.DataFrame): A DataFrame containing a column 'Book genres'
+    df (pandas.DataFrame): A DataFrame containing a column 'Book_Genres'
     with lists of genres for each book.
 
     Returns:
     pandas.Series: A Series object containing the count of each genre across
     all books in descending order.
 
-    The function iterates through the 'Book genres' column of the DataFrame
+    The function iterates through the 'Book_Genres' column of the DataFrame
     and counts the occurrences of each genre.
     It then sorts the genres_counts dictionary by the count of each genre in
     descending order. The sorted dictionary is converted into a Pandas Series
     and returned.
     """
     genres_counts = dict()
-    for i, genres in enumerate(df['Book genres']):
+    for i, genres in enumerate(df['Book_Genres']):
         for genre in genres:
             genres_counts[genre] = genres_counts.get(genre, 0) + 1
 
@@ -687,26 +456,26 @@ print(f"Number of books: {data.shape[0]}")
 print(f"Missing values: {data.isnull().sum().any()}")
 
 # Analyze summary length
-summary_stats = data['Summary Length'].describe()
+summary_stats = data['Summary_Length'].describe()
 print(f"\nSummary length statistics:\n{summary_stats}")
 
 # box plot for summary length
 plt.figure(figsize=(15, 3))
 # Creating the box plot
-plt.boxplot(data['Summary Length'], vert=False)
+plt.boxplot(data['Summary_Length'], vert=False)
 plt.title('Summary Length Box Plot')
 plt.xlabel('Summary Length')
 plt.ylabel('Value')
 plt.show()
 
 # Analyze publication year
-publication_stats = data['Publication year'].describe()
+publication_stats = data['Publication_Year'].describe()
 print(f"\nPublication year statistics:\n{publication_stats}")
 
 # box plot for publication year
 plt.figure(figsize=(15, 3))
 # Creating the box plot
-plt.boxplot(data['Publication year'], vert=False)
+plt.boxplot(data['Publication_Year'], vert=False)
 plt.title('Publication Year Box Plot')
 plt.xlabel('Publication Year')
 plt.ylabel('Value')
@@ -729,7 +498,7 @@ plt.xticks(rotation=0)
 plt.show()
 
 # Publication year distribution
-year_counts = data['Publication year'].value_counts()
+year_counts = data['Publication_Year'].value_counts()
 print(f"\nPublication year distribution:\n\n{year_counts}")
 
 # Get the top 20 most frequent publication year
@@ -762,7 +531,7 @@ plt.show()
 
 # Genre Co-occurrence analysis
 genre_pairs = []
-for genres in data['Book genres']:
+for genres in data['Book_Genres']:
     for i in range(len(genres) - 1):
         for j in range(i + 1, len(genres)):
             pair = (genres[i], genres[j])
@@ -807,13 +576,13 @@ model = BartForConditionalGeneration.from_pretrained(
     'facebook/bart-large-cnn').to(device)
 
 # Load dataset from csv file from drive for google colab
-file_path = 'drive/MyDrive/cleaned_book_summary.csv'
+file_path = 'drive/MyDrive/cleaned_book_summaries.csv'
 data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
 
 # # Load dataset from local csv file
-# data = pd.read_csv('cleaned_book_summary.csv', sep='\t', encoding='utf-8')
+# data = pd.read_csv('cleaned_book_summaries.csv', sep='\t', encoding='utf-8')
 
-def summarize_batch(texts, max_input_length=1024, max_output_length=100, num_beams=2, device='cpu'):
+def summarize_batch(texts, max_input_length=1024, max_output_length=75, num_beams=2, device='cpu'):
     """
     Summarizes a batch of input texts using the BART model.
 
@@ -842,7 +611,7 @@ def summarize_batch(texts, max_input_length=1024, max_output_length=100, num_bea
     return [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=True) for g in summary_ids]
 
 # Example usage on a single text summary
-sample_text = data.loc[0, 'Cleaned Summary']
+sample_text = data.loc[0, 'Cleaned_Summary']
 short_summary = summarize_batch([sample_text], device=device)[0]
 print("Cleaned Summary lenght:", len(sample_text.split()))
 print("Summarized Text lenght:", len(short_summary.split()))
@@ -911,7 +680,7 @@ def batch_summarization(df, batch_size=32, num_beams=2, device='cpu'):
 
     for i in tqdm(range(0, len(df), batch_size)):
         batch_df = df.iloc[i:i+batch_size]
-        texts = batch_df['Cleaned Summary'].tolist()  # Extract the batch of texts
+        texts = batch_df['Cleaned_Summary'].tolist()  # Extract the batch of texts
         summaries = summarize_batch(texts, num_beams=num_beams, device=device)  # Summarize the batch
         df.loc[batch_df.index, 'Summarized_Text'] = summaries  # Update the DataFrame with the summarized text
 
@@ -923,7 +692,7 @@ def batch_summarization(df, batch_size=32, num_beams=2, device='cpu'):
 data = batch_summarization(data, batch_size=32, num_beams=2, device=device)
 
 # Display the first few summarized texts
-data[['Cleaned Summary', 'Summarized_Text']].head()
+data[['Cleaned_Summary', 'Summarized_Text']].head()
 
 # Save summarized book summary data to drive from google colab
 file_path = 'drive/MyDrive/summarized_book_summary.csv'
@@ -945,6 +714,8 @@ drive.mount('/content/drive')
 
 # import libraries
 import os
+import shutil
+import zipfile
 from tqdm import tqdm
 from PIL import Image
 import pandas as pd
@@ -968,7 +739,7 @@ pipe = StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4",
                                                .to(device)
 
 # Ensure the output folder exists
-output_folder = "drive/MyDrive/generated_images"
+output_folder = "./generated_images"
 os.makedirs(output_folder, exist_ok=True)
 
 def text_to_image(text, num_images_per_prompt=1, height=256, width=256,
@@ -1077,7 +848,14 @@ def display_image(image):
     plt.axis("off")
     plt.show()
 
-# Example usage with a sample text
+def zip_directory(directory_path, zip_file_path):
+    with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, _, files in os.walk(directory_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, os.path.dirname(directory_path))
+                zipf.write(file_path, arcname)
+
 sample_text = data.loc[0, 'Summarized_Text']
 
 # Generate image for sample text
@@ -1086,5 +864,107 @@ sample_image = text_to_image(text, pipe=pipe, device=device)
 # Display the generated image
 display_image(sample_image)
 
-# Example usage with your DataFrame
-batch_text_to_images(data, pipe=pipe, device=device, stop_index=1000)
+# Generate images for data 0 to 1000
+batch_text_to_images(data, pipe=pipe, device=device, stop_index=1000,
+                     output_folder=output_folder)
+
+# Ensure the output folder exists
+output_folder = "./generated_images_00"
+os.makedirs(output_folder, exist_ok=True)
+zip_file_path = "./generated_images_00.zip"
+zip_directory(output_folder, zip_file_path)
+shutil.copy(zip_file_path, "drive/MyDrive/generated_images_00.zip")
+
+# Generate images for data 1000 to 2000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=1000, stop_index=2000,
+                     output_folder=output_folder)
+
+# Ensure the output folder exists
+output_folder = "./generated_images_01"
+os.makedirs(output_folder, exist_ok=True)
+zip_file_path = "./generated_images_01.zip"
+zip_directory(output_folder, zip_file_path)
+shutil.copy(zip_file_path, "drive/MyDrive/generated_images_01.zip")
+
+# Generate images for data 2000 to 3000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=2000, stop_index=3000,
+                     output_folder=output_folder)
+
+# Ensure the output folder exists
+output_folder = "./generated_images_02"
+os.makedirs(output_folder, exist_ok=True)
+zip_file_path = "./generated_images_02.zip"
+zip_directory(output_folder, zip_file_path)
+shutil.copy(zip_file_path, "drive/MyDrive/generated_images_02.zip")
+
+# Generate images for data 3000 to 4000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=3000, stop_index=4000,
+                     output_folder=output_folder)
+
+# Generate images for data 4000 to 5000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=4000, stop_index=5000,
+                     output_folder=output_folder)
+
+# Generate images for data 5000 to 6000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=5000, stop_index=6000,
+                     output_folder=output_folder)
+
+# Generate images for data 6000 to 7000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=6000, stop_index=7000,
+                     output_folder=output_folder)
+
+# Generate images for data 7000 to 8000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=7000, stop_index=8000,
+                     output_folder=output_folder)
+
+# Generate images for data 8000 to 9000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=8000, stop_index=9000,
+                     output_folder=output_folder)
+
+# Generate images for data 9000 to 10000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=9000, stop_index=10000,
+                     output_folder=output_folder)
+
+# Generate images for data 10000 to 11000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=10000, stop_index=11000,
+                     output_folder=output_folder)
+
+# Generate images for data 11000 to 12000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=11000, stop_index=12000,
+                     output_folder=output_folder)
+
+# Generate images for data 12000 to 13000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=12000, stop_index=13000,
+                     output_folder=output_folder)
+
+# Generate images for data 13000 to 14000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=13000, stop_index=14000,
+                     output_folder=output_folder)
+
+# Generate images for data 14000 to 15000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=14000, stop_index=15000,
+                     output_folder=output_folder)
+
+# Generate images for data 15000 to 16000
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=15000, stop_index=16000,
+                     output_folder=output_folder)
+
+# Generate images for data 16000 to end of dataset
+batch_text_to_images(data, pipe=pipe, device=device,
+                     start_index=16000,
+                     output_folder=output_folder)
