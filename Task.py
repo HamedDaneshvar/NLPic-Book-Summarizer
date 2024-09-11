@@ -190,6 +190,9 @@ print(data.isna().sum())
 file_path = 'drive/MyDrive/checkpoint1_book_summaries.csv'
 data.to_csv(file_path, sep='\t', index=False, encoding='utf-8')
 
+file_path = 'drive/MyDrive/checkpoint1_book_summaries.csv'
+data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
+
 def extract_year(pub_date):
     """
     Convert publication date to just the year
@@ -197,6 +200,11 @@ def extract_year(pub_date):
     """
     if isinstance(pub_date, str) and '-' in pub_date:
         return pd.to_datetime(pub_date, errors='coerce').year
+    elif isinstance(pub_date, str) and not pub_date.isdigit():
+        if year_match := re.search(r'\d{4}', pub_date):
+            return int(year_match.group())
+        else:
+            return np.nan
     return int(pub_date) if isinstance(pub_date, str) and pub_date.isdigit()\
         else np.nan
 
@@ -208,7 +216,7 @@ duplicates = data.duplicated(subset=['Book_Title', 'Author'], keep='first')
 print(f"Number of duplicate rows: {duplicates.sum()}")
 
 # # Drop duplicates
-data = data.drop_duplicates(subset=['Book_Title', 'Author'], keep='first')
+# data = data.drop_duplicates(subset=['Book_Title', 'Author'], keep='first')
 
 # text cleaning
 # if get an error for this line, you must use `nltk.download()`
@@ -243,6 +251,9 @@ def clean_text(text):
 
 data['Cleaned_Summary'] = data['Plot_Summary'].apply(clean_text)
 
+print(f"Number of null Cleaned Summary rows:",
+      len(data[data['Cleaned_Summary'].isnull()]))
+
 # Drop rows where 'Cleaned_Summary' is NaN
 data = data.dropna(subset=['Cleaned_Summary'])
 
@@ -257,8 +268,8 @@ IQR = Q3 - Q1
 lower_bound = Q1 - 1.5 * IQR
 upper_bound = Q3 + 1.5 * IQR
 
-outliers = data[(data['Summary Length'] < lower_bound) |
-                (data['Summary Length'] > upper_bound)]
+outliers = data[(data['Summary_Length'] < lower_bound) |
+                (data['Summary_Length'] > upper_bound)]
 print(f"Number of outliers in Summary Length: {outliers.shape[0]}")
 
 # # Remove outliers
@@ -296,6 +307,9 @@ def fill_missing_genres(df, num_modes):
 # Fill missing genres based on author with the 5 most common genres
 data = fill_missing_genres(data, 5)
 
+# Check the Nan value of 'Author' and 'Publication_Date' columns
+print(data.isna().sum())
+
 # Plot a histogram to find out median is better for 'Publication_Year' or mode
 median = data['Publication_Year'].median()
 mode = data['Publication_Year'].mode()[0]
@@ -313,7 +327,7 @@ plt.axvline(mode, color='g', linestyle='dashed',
             linewidth=1, label=f'Mode: {mode}')
 plt.axhline(mean, color='b', linestyle='dashed',
             linewidth=1, label=f'Mean: {mean}')
-plt.xlim(1800, data['Publication year'].max())
+plt.xlim(1800, data['Publication_Year'].max())
 
 plt.legend()
 plt.show()
