@@ -649,6 +649,7 @@ drive.mount('/content/drive')
 
 # import libraries
 import os
+import random
 import shutil
 import zipfile
 from tqdm import tqdm
@@ -659,11 +660,11 @@ import torch
 from diffusers import StableDiffusionPipeline
 
 # Load dataset from csv file from drive for google colab
-file_path = 'drive/MyDrive/summarized_book_summary.csv'
+file_path = 'drive/MyDrive/final_book_summaries.csv'
 data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
 
 # # Load dataset from local csv file
-# data = pd.read_csv('summarized_book_summary.csv', sep='\t', encoding='utf-8')
+# data = pd.read_csv('final_book_summaries.csv', sep='\t', encoding='utf-8')
 
 # Check if a GPU is available, otherwise fall back to CPU
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -672,6 +673,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 pipe = StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4",
                                                torch_dtype=torch.float16)\
                                                .to(device)
+
+# Disable NSFW filter
+# But we don't do it because we want to adhere to
+# ethical concerns, usage laws, and platforms.
+pipe.safety_checker = None
 
 # Ensure the output folder exists
 output_folder = "./generated_images"
@@ -706,6 +712,11 @@ def text_to_image(text, num_images_per_prompt=1, height=256, width=256,
         pipe = StableDiffusionPipeline.from_pretrained(
             "CompVis/stable-diffusion-v1-4", torch_dtype=torch.float16)\
             .to(device)
+        # Disable NSFW filter
+        # pipe.safety_checker = None
+
+    # # Set a random seed
+    # random_seed = random.randint(0, 10000)
 
     # Generate the image
     image = pipe(text, num_images_per_prompt=num_images_per_prompt,
@@ -794,115 +805,29 @@ def zip_directory(directory_path, zip_file_path):
 sample_text = data.loc[0, 'Summarized_Text']
 
 # Generate image for sample text
-sample_image = text_to_image(text, pipe=pipe, device=device)
+sample_image = text_to_image(sample_text, pipe=pipe, device=device)
 
 # Display the generated image
 display_image(sample_image)
 
-# Generate images for data 0 to 1000
-batch_text_to_images(data, pipe=pipe, device=device, stop_index=1000,
+!ls -lh generated_images/
+
+# Generate 1024 for generate images
+random_numbers = [random.randint(0, len(data) - 1) for _ in range(1024)]
+
+# Create a new dataframe for generate random images
+df = data.iloc[random_numbers]
+
+# Generate 1024 random images
+batch_text_to_images(df, pipe=pipe, device=device,
                      output_folder=output_folder)
 
 # Ensure the output folder exists
-output_folder = "./generated_images_00"
+output_folder = "./generated_images"
 os.makedirs(output_folder, exist_ok=True)
-zip_file_path = "./generated_images_00.zip"
+zip_file_path = "./generated_images.zip"
 zip_directory(output_folder, zip_file_path)
-shutil.copy(zip_file_path, "drive/MyDrive/generated_images_00.zip")
-
-# Generate images for data 1000 to 2000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=1000, stop_index=2000,
-                     output_folder=output_folder)
-
-# Ensure the output folder exists
-output_folder = "./generated_images_01"
-os.makedirs(output_folder, exist_ok=True)
-zip_file_path = "./generated_images_01.zip"
-zip_directory(output_folder, zip_file_path)
-shutil.copy(zip_file_path, "drive/MyDrive/generated_images_01.zip")
-
-# Generate images for data 2000 to 3000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=2000, stop_index=3000,
-                     output_folder=output_folder)
-
-# Ensure the output folder exists
-output_folder = "./generated_images_02"
-os.makedirs(output_folder, exist_ok=True)
-zip_file_path = "./generated_images_02.zip"
-zip_directory(output_folder, zip_file_path)
-shutil.copy(zip_file_path, "drive/MyDrive/generated_images_02.zip")
-
-# Generate images for data 3000 to 4000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=3000, stop_index=4000,
-                     output_folder=output_folder)
-
-# Generate images for data 4000 to 5000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=4000, stop_index=5000,
-                     output_folder=output_folder)
-
-# Generate images for data 5000 to 6000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=5000, stop_index=6000,
-                     output_folder=output_folder)
-
-# Generate images for data 6000 to 7000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=6000, stop_index=7000,
-                     output_folder=output_folder)
-
-# Generate images for data 7000 to 8000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=7000, stop_index=8000,
-                     output_folder=output_folder)
-
-# Generate images for data 8000 to 9000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=8000, stop_index=9000,
-                     output_folder=output_folder)
-
-# Generate images for data 9000 to 10000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=9000, stop_index=10000,
-                     output_folder=output_folder)
-
-# Generate images for data 10000 to 11000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=10000, stop_index=11000,
-                     output_folder=output_folder)
-
-# Generate images for data 11000 to 12000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=11000, stop_index=12000,
-                     output_folder=output_folder)
-
-# Generate images for data 12000 to 13000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=12000, stop_index=13000,
-                     output_folder=output_folder)
-
-# Generate images for data 13000 to 14000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=13000, stop_index=14000,
-                     output_folder=output_folder)
-
-# Generate images for data 14000 to 15000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=14000, stop_index=15000,
-                     output_folder=output_folder)
-
-# Generate images for data 15000 to 16000
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=15000, stop_index=16000,
-                     output_folder=output_folder)
-
-# Generate images for data 16000 to end of dataset
-batch_text_to_images(data, pipe=pipe, device=device,
-                     start_index=16000,
-                     output_folder=output_folder)
+shutil.copy(zip_file_path, "drive/MyDrive/generated_images.zip")
 
 """## Step 5: EDA section"""
 
@@ -911,8 +836,9 @@ from tqdm import tqdm
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Load dataset from csv file
-data = pd.read_csv('cleaned_book_summaries.csv', sep='\t', encoding='utf-8')
+# Load dataset from csv file from drive for google colab
+file_path = 'drive/MyDrive/final_book_summaries.csv'
+data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
 
 # Convert all genres values into tuple
 for i in tqdm(range(len(data))):
