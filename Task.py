@@ -383,6 +383,7 @@ from tqdm import tqdm
 import pandas as pd
 import torch
 from transformers import BartTokenizer, BartForConditionalGeneration
+from rouge_score import rouge_scorer
 
 # Load pre-trained BART model and tokenizer, move model to GPU if available
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -428,21 +429,15 @@ def summarize_batch(texts, max_input_length=1024, max_output_length=75, num_beam
     # Decode the generated tokens into a string (summary)
     return [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=True) for g in summary_ids]
 
+# Initialize ROUGE scorer
+scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+
 # Example usage on a single text summary
-sample_text = data.loc[0, 'Cleaned_Summary']
+sample_text = data.loc[12390, 'Cleaned_Summary']  # longest text in dataset
 short_summary = summarize_batch([sample_text], device=device)[0]
 print("Cleaned Summary lenght:", len(sample_text.split()))
 print("Summarized Text lenght:", len(short_summary.split()))
 print("Summarized Text:", short_summary)
-
-# Check for accuracy of the model with sample text
-from rouge_score import rouge_scorer
-
-# Define the original text and summarized text
-# we use sample_text as original_text and short_summary as summarized text
-
-# Initialize ROUGE scorer
-scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
 
 # Compute ROUGE scores
 scores = scorer.score(sample_text, short_summary)
@@ -452,32 +447,75 @@ print("ROUGE-1: ", scores['rouge1'])
 print("ROUGE-2: ", scores['rouge2'])
 print("ROUGE-L: ", scores['rougeL'])
 
-"""The ROUGE scores you've obtained provide valuable insight into the performance of your summarization model. Here's a breakdown of the results:
+"""The ROUGE scores obtained for the longest text in the dataset provide us with valuable insights into the performance of summarization model. Below is an analysis of these results:
 
 ### **ROUGE-1:**
-- **Precision = 1.0**: This indicates that 100% of the unigrams (individual words) in the summary are found in the original text. In other words, all the words in the summary are present in the original.
-- **Recall = 0.136 (approx)**: Only about 13.6% of the unigrams from the original text are included in the summary, meaning the summary is quite condensed.
-- **F1-Score = 0.239 (approx)**: This score represents the harmonic mean between precision and recall, balancing both metrics. While precision is perfect, the relatively low recall pulls the F1-score down.
+- **Precision = 1.0**: This indicates that 100% of the unigrams (individual words) in the summary are present in the original text. The summary is exclusively composed of words from the original.
+- **Recall = 0.0049**: Only about 0.49% of the unigrams from the original text are included in the summary. This very low recall suggests the summary is extremely condensed.
+- **F1-Score = 0.0098**: The harmonic mean between precision and recall is low due to the significant gap between the two. While the model captures every word it chooses with perfect precision, it includes very few words from the original.
 
 ### **ROUGE-2:**
-- **Precision = 1.0**: All the bigrams (pairs of consecutive words) in the summary appear in the original text.
-- **Recall = 0.134 (approx)**: Only about 13.4% of the bigrams from the original text are present in the summary, indicating that the bigram coverage of the original content is limited.
-- **F1-Score = 0.236 (approx)**: This score reflects the balance between precision and recall for bigrams. Similar to ROUGE-1, the perfect precision is offset by low recall.
+- **Precision = 0.62**: This means 62% of the bigrams (pairs of consecutive words) in the summary are present in the original text. However, this isn't as high as the unigram precision, indicating that while individual words are captured well, their order might not be as well preserved.
+- **Recall = 0.0030**: About 0.3% of the bigrams from the original text are present in the summary, which suggests that only a very tiny fraction of the original bigram content is captured.
+- **F1-Score = 0.0060**: The F1 score is quite low due to the large gap between precision and recall, indicating that the summary may be missing important contextual sequences of words.
 
 ### **ROUGE-L:**
-- **Precision = 1.0**: All of the longest common subsequences (chunks of text that maintain word order) in the summary are present in the original text.
-- **Recall = 0.136 (approx)**: About 13.6% of the original text's sequences are included in the summary, again showing that the summary is highly condensed.
-- **F1-Score = 0.239 (approx)**: This score balances precision and recall for subsequences, similar to the unigrams and bigrams.
+- **Precision = 0.824**: Around 82.4% of the longest common subsequences (LCS) between the summary and original text are preserved, which suggests the model does a reasonable job of maintaining word order for the parts of the original text it includes.
+- **Recall = 0.0041**: Only 0.41% of the sequences from the original text appear in the summary, indicating that while the word order is preserved, a very small amount of content is actually included.
+- **F1-Score = 0.0081**: The low F1 score again reflects the tension between high precision and low recall, meaning the model extracts sequences faithfully but covers only a tiny portion of the original text.
 
 ### **Interpretation:**
-- **Perfect precision (1.0)**: All of the words, bigrams, and sequences in the summary are taken directly from the original text. This means the summary is highly faithful to the original in terms of word choice and order.
-- **Low recall (~13.5%)**: The summary only includes a small portion of the original text, indicating a significant reduction in content. This could be because the summary is intentionally short.
-- **F1-scores (~0.239)**: The F1-scores reflect the balance between precision and recall. Since precision is perfect but recall is low, the F1-scores are relatively low.
+- **High precision, low recall**: Across all the ROUGE scores, precision is relatively high (especially for ROUGE-1), but recall is extremely low. This suggests that the model creates **very short summaries**, where most of the content is omitted, but what is included is perfectly selected.
+- **Condensed summary**: Given the very low recall (~0.49% for ROUGE-1 and ~0.3% for ROUGE-2), it seems the summary is heavily reduced in length and content compared to the original text.
+- **Bigram and sequence preservation**: While bigram precision and LCS precision are somewhat decent, the low recall shows that the summary may not be capturing much of the original context or detail.
 
 ### **Summary of Findings:**
-- The summarization model generates summaries that are **very precise**, ensuring that the words and phrases used are accurately drawn from the original text.
-- However, the **low recall** suggests that the summaries omit a large portion of the original content, making them very condensed.
-- If your goal is to produce **short, concise summaries**, this level of condensation may be ideal. On the other hand, if you'd like to retain more of the original content, you may need to **increase the summary length** or adjust the model's parameters.
+- Your summarization model is **highly precise** in choosing words and maintaining word order from the original text, but it summarizes the text in a very condensed form, leading to a **low recall**.
+- If you're aiming for **concise summaries**, this may be acceptable, but the summaries may be missing a lot of important content.
+- If our goal is to generate **short, accurate summaries**, this level of compression may be ideal, aligning with our objective. On the other hand, if we aim to preserve more content from the original material, we might need to **increase the summary length** (adjusting `max_output_length`) or adjust the model parameters.
+"""
+
+# Example usage on a single text summary
+sample_text = data.loc[0, 'Cleaned_Summary']
+short_summary = summarize_batch([sample_text], device=device)[0]
+print("Cleaned Summary lenght:", len(sample_text.split()))
+print("Summarized Text lenght:", len(short_summary.split()))
+print("Summarized Text:", short_summary)
+
+# Compute ROUGE scores
+scores = scorer.score(sample_text, short_summary)
+
+# Print ROUGE scores
+print("ROUGE-1: ", scores['rouge1'])
+print("ROUGE-2: ", scores['rouge2'])
+print("ROUGE-L: ", scores['rougeL'])
+
+"""The obtained ROUGE scores provide some useful insights into the performance of the summarization model. Below is an analysis based on the provided scores:
+
+### **ROUGE-1:**
+- **Precision = 1.0**: This means 100% of the unigrams (individual words) in the summary are found in the original text. The summary doesn’t introduce any new words, only using words from the original.
+- **Recall = 0.0689**: About 6.89% of the unigrams from the original text are present in the summary. This indicates that only a small portion of the original content is captured in the summary.
+- **F1-Score = 0.1288**: The F1 score, which is the harmonic mean between precision and recall, reflects a balance between the two. While the precision is perfect, the low recall keeps the F1 score down.
+
+### **ROUGE-2:**
+- **Precision = 1.0**: All of the bigrams (pairs of consecutive words) in the summary are directly taken from the original text, so there is no deviation from the word order or word choice.
+- **Recall = 0.0679**: Only about 6.79% of the bigrams from the original text are captured in the summary, meaning that very few sequences of two consecutive words are included.
+- **F1-Score = 0.1271**: This score reflects the balance between the perfect precision and the low recall, showing that while the summary is accurate in terms of bigram usage, it captures only a small part of the original.
+
+### **ROUGE-L:**
+- **Precision = 1.0**: The longest common subsequences (LCS) in the summary are perfectly matched to those in the original text, so word order is faithfully preserved.
+- **Recall = 0.0689**: Similar to ROUGE-1, only 6.89% of the sequences from the original text are included in the summary, highlighting how much of the original content is omitted.
+- **F1-Score = 0.1288**: The F1 score indicates a decent balance between precision and recall, where precision is perfect but recall is quite low.
+
+### **Interpretation:**
+- **Perfect precision (1.0)**: The summary is highly faithful to the original text, as every word, bigram, and sequence in the summary appears in the original. There is no extraneous or erroneous content.
+- **Low recall (~6.9%)**: The summary is very condensed, including less than 7% of the original content. This suggests that while the summary is accurate, it covers only a small portion of the original text.
+- **F1-scores (~0.128)**: The F1-scores reflect the model’s high precision but low recall, meaning it does a good job of capturing the words and phrases it chooses but doesn’t include much of the original content.
+
+### **Summary of Findings:**
+- The model generates summaries that are **extremely precise**, ensuring that all words and sequences in the summary are drawn from the original text.
+- However, the **low recall** indicates that the summaries omit a significant portion of the original content, making them highly condensed.
+- If our goal is to generate **short, accurate summaries**, this level of compression may be ideal, aligning with our objective. On the other hand, if we aim to preserve more content from the original material, we might need to **increase the summary length** (adjusting `max_output_length`) or adjust the model parameters.
 """
 
 def batch_summarization(df, batch_size=32, num_beams=2, device='cpu'):
