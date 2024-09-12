@@ -29,7 +29,6 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # CONSTANTS
-UNKNOWN_GENRE = ('Unknown',)
 UNKNOWN_AUTHOR = 'Unknown'
 UNKNOWN_PUBLICATION_DATE = 'Unknown'
 
@@ -353,17 +352,6 @@ mean_year = int(data['Publication_Year'].mode()[0])
 data['Publication_Year'].fillna(mean_year, inplace=True)
 data['Publication_Date'].fillna(mean_year, inplace=True)
 
-# We can use "Title-Based" method or Pre-Trained NLP Model
-# for Genre Prediction but in this step ignore this method
-# and just set this missing value genre with UNKNOWN_GENRE variable
-
-
-def fill_with_unknown_genre(x):
-    return UNKNOWN_GENRE if pd.isnull(x) else x
-
-
-data['Book_Genres'] = data['Book_Genres'].apply(fill_with_unknown_genre)
-
 # Check the Nan value of all columns
 print(data.isna().sum())
 
@@ -561,6 +549,31 @@ data.to_csv(file_path, sep='\t',
 
 """## Step 3 Predicted Book Genres with Bert NLP model"""
 
+# import google drive to use gpu for this section
+from google.colab import drive
+drive.mount('/content/drive')
+
+import ast
+from tqdm import tqdm
+import pandas as pd
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+# Load dataset from csv file from drive for google colab
+file_path = 'drive/MyDrive/summarized_book_summary.csv'
+data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
+
+# Convert all genres values into tuple
+for i in tqdm(range(len(data))):
+    try:
+        genres_tuple = ast.literal_eval(data.loc[i, 'Book_Genres'])
+        if isinstance(genres_tuple, tuple):
+            data.at[i, 'Book_Genres'] = genres_tuple
+        else:
+            data.at[i, 'Book_Genres'] = np.nan
+    except (SyntaxError, ValueError):
+        continue
+
 # Get the distinct book genres
 unique_genres = dict()
 for index, row in data.iterrows():
@@ -572,27 +585,58 @@ for index, row in data.iterrows():
 total_genres = [k for k, v in sorted(unique_genres.items(), key=lambda x: x[1], reverse=True)]
 
 # Load pre-trained BERT tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-model = AutoModelForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=len(unique_genres))
-
-# Load pre-trained BERT tokenizer and model
 tokenizer = AutoTokenizer.from_pretrained("bert-large-uncased")
 model = AutoModelForSequenceClassification.from_pretrained("bert-large-uncased", num_labels=len(total_genres))
 
-data.head(15)
+def predict_book_genres(df, model, tokenizer, total_genres, top_n=1, threshold=0.5):
+    """
+    Predicts book genres for each entry in the DataFrame based on the model predictions.
 
-# Preprocess plot summary
-text = data.loc[7, 'Plot_Summary']
-inputs = tokenizer(text, return_tensors="pt")
+    Args:
+        df (pd.DataFrame): DataFrame containing book information.
+        model: Pre-trained model for genre prediction.
+        tokenizer: Tokenizer for processing text inputs.
+        total_genres (list): List of all possible genres.
+        top_n (int): Number of top genres to return if none are predicted above the threshold.
+        threshold (float): Probability threshold for filtering genres.
 
-# Get predictions
-outputs = model(**inputs)
-logits = outputs.logits
-predictions = torch.argmax(logits, dim=-1)
+    Returns:
+        pd.DataFrame: Updated DataFrame with predicted genres in the 'Book_Genres' column.
+    """
+    for index, row in tqdm(df[df['Book_Genres'].isnull()].iterrows()):
+        try:
+            text = df.loc[index, 'Cleaned_Summary']
+            inputs = tokenizer(text, return_tensors="pt")
+            outputs = model(**inputs)
+        except RuntimeError:
+            text = df.loc[index, 'Summarized_Text']
+            inputs = tokenizer(text, return_tensors="pt")
+            outputs = model(**inputs)
 
-# Map predicted index to genre
-predicted_genre = total_genres[predictions.item()]
-print("Predicted genre:", predicted_genre)
+        logits = outputs.logits
+        probabilities = torch.softmax(logits, dim=-1)
+
+        predicted_genres_with_scores = [(total_genres[i], probability.item()) for i, probability in enumerate(probabilities[0]) if probability > threshold]
+
+        predicted_genres = sorted(predicted_genres_with_scores, key=lambda x: x[1], reverse=True)
+        predicted_genres = [genre for genre, _ in predicted_genres]
+
+        if not predicted_genres:
+            predicted_genres = [total_genres[i] for i in torch.argsort(logits[0], descending=True)[:top_n]]
+
+        df.at[index, 'Book_Genres'] = tuple(predicted_genres)
+
+    return df
+
+data = predict_book_genres(data, model, tokenizer, total_genres)
+
+# Check the Nan value of all columns
+print(data.isna().sum())
+
+# Save filled summarized book summary data to drive from google colab
+file_path = 'drive/MyDrive/final_book_summaries.csv'
+data.to_csv(file_path, sep='\t',
+            index=False, encoding='utf-8')
 
 """## Step 4: Computer Vision Component"""
 
