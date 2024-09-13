@@ -3,7 +3,7 @@
 
 # # Task Assignment
 
-## Step 1: Data Preprocessing and EDA
+## Step 1: Data Preprocessing
 
 # import google drive to use gpu for this section
 from google.colab import drive
@@ -47,17 +47,6 @@ header = ['Wikipedia_Article_ID', 'Freebase_ID', 'Book_Title', 'Author',
 file_path = 'drive/MyDrive/booksummaries.txt'
 data = pd.read_csv(file_path, sep='\t', header=None,
                    names=header, encoding='utf-8')
-
-"""### Load dataset from local system"""
-
-# # header for dataset
-# header = ['Wikipedia_Article_ID', 'Freebase_ID', 'Book_Title', 'Author',
-#           'Publication_date', 'Book_Genres_(Freebase_ID:name_tuples)',
-#           'Plot_Summary']
-
-# # Load dataset from text file in local system
-# data = pd.read_csv('booksummaries.txt', sep='\t', header=None,
-#                    names=header, encoding='utf-8')
 
 # Display sample of data
 data.head()
@@ -386,9 +375,6 @@ model = BartForConditionalGeneration.from_pretrained(
 file_path = 'drive/MyDrive/cleaned_book_summaries.csv'
 data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
 
-# # Load dataset from local csv file
-# data = pd.read_csv('cleaned_book_summaries.csv', sep='\t', encoding='utf-8')
-
 def summarize_batch(texts, max_input_length=1024, max_output_length=75, num_beams=2, device='cpu'):
     """
     Summarizes a batch of input texts using the BART model.
@@ -543,10 +529,6 @@ file_path = 'drive/MyDrive/summarized_book_summary.csv'
 data.to_csv(file_path, sep='\t',
             index=False, encoding='utf-8')
 
-# # Save summarized book summary data to local system
-# data.to_csv('summarized_book_summary.csv', sep='\t',
-#             index=False, encoding='utf-8')
-
 """## Step 3 Predicted Book Genres with Bert NLP model"""
 
 # import google drive to use gpu for this section
@@ -663,9 +645,6 @@ from diffusers import StableDiffusionPipeline
 file_path = 'drive/MyDrive/final_book_summaries.csv'
 data = pd.read_csv(file_path, sep='\t', encoding='utf-8')
 
-# # Load dataset from local csv file
-# data = pd.read_csv('final_book_summaries.csv', sep='\t', encoding='utf-8')
-
 # Check if a GPU is available, otherwise fall back to CPU
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -714,9 +693,6 @@ def text_to_image(text, num_images_per_prompt=1, height=256, width=256,
             .to(device)
         # Disable NSFW filter
         # pipe.safety_checker = None
-
-    # # Set a random seed
-    # random_seed = random.randint(0, 10000)
 
     # Generate the image
     image = pipe(text, num_images_per_prompt=num_images_per_prompt,
@@ -911,8 +887,6 @@ def get_genres_distribution(df):
     return genre_series
 
 # Remove stop words
-# if get an error for this line, you must use `nltk.download('stopwords')`
-# command and download stopwords
 stop_words = set(stopwords.words('english'))
 
 
