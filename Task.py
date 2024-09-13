@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # DataCoLab Task Assignment
+# # Task Assignment
 
 ## Step 1: Data Preprocessing and EDA
 
@@ -218,7 +218,7 @@ print(f"Number of duplicate rows: {duplicates.sum()}")
 # data = data.drop_duplicates(subset=['Book_Title', 'Author'], keep='first')
 
 # text cleaning
-# if get an error for this line, you must use `nltk.download()`
+# if get an error for this line, you must use `nltk.download('stopwords')`
 # command and download stopwords
 # stop_words = set(stopwords.words('english'))
 
@@ -239,8 +239,8 @@ def clean_text(text):
     # we don't remove stop words to get more accurate text in step 2
     # text = ' '.join([word for word in text.split()
     #                  if word not in stop_words])
-    # Remove extra  before and after whitespace
 
+    # Remove extra  before and after whitespace
     text = text.strip()
     # check if text is none
     text = text if text else np.nan
@@ -810,8 +810,6 @@ sample_image = text_to_image(sample_text, pipe=pipe, device=device)
 # Display the generated image
 display_image(sample_image)
 
-!ls -lh generated_images/
-
 # Generate 1024 for generate images
 random_numbers = [random.randint(0, len(data) - 1) for _ in range(1024)]
 
@@ -829,12 +827,40 @@ zip_file_path = "./generated_images.zip"
 zip_directory(output_folder, zip_file_path)
 shutil.copy(zip_file_path, "drive/MyDrive/generated_images.zip")
 
-"""## Step 5: EDA section"""
+"""## Step 5: EDA part"""
 
+# import google drive to use gpu for this section
+from google.colab import drive
+drive.mount('/content/drive')
+
+!pip install -q wordcloud
+
+import re
+import string
 import ast
 from tqdm import tqdm
+from collections import Counter
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+import gensim
+from gensim import corpora
+from gensim.models import LdaModel
+from gensim.models import CoherenceModel
+from sklearn.decomposition import PCA
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+
+# Download WordNet resources
+nltk.download('stopwords')
+nltk.download('punkt')
+nltk.download('wordnet')
 
 # Load dataset from csv file from drive for google colab
 file_path = 'drive/MyDrive/final_book_summaries.csv'
@@ -884,10 +910,35 @@ def get_genres_distribution(df):
 
     return genre_series
 
+# Remove stop words
+# if get an error for this line, you must use `nltk.download('stopwords')`
+# command and download stopwords
+stop_words = set(stopwords.words('english'))
+
+
+def remove_stopwords(text):
+    # Remove stop words
+    text = ' '.join([word for word in text.split()
+                     if word not in stop_words])
+
+    return text
+
+
+data['Cleaned_Summary'] = data['Cleaned_Summary'].apply(remove_stopwords)
+
+# Function to filter rows by genre match and concatenate text
+def filter_and_concat_text(df, genre):
+    filtered_text = ' '.join(df[df['Book_Genres'].apply(lambda x: genre in x)]['Cleaned_Summary'])
+    return filtered_text
+
+"""#### Basic information about dataset"""
+
 # Get basic information about data
 print(f"Number of books: {data.shape[0]}")
 # Check for any remaining missing values
 print(f"Missing values: {data.isnull().sum().any()}")
+
+"""#### Summary length analysis"""
 
 # Analyze summary length
 summary_stats = data['Summary_Length'].describe()
@@ -902,6 +953,18 @@ plt.xlabel('Summary Length')
 plt.ylabel('Value')
 plt.show()
 
+# Plotting the distribution of sentence lengths
+plt.figure(figsize=(10, 6))
+num_bins = len(data['Summary_Length']) // 100
+plt.hist(data['Summary_Length'], bins=num_bins, color='skyblue', alpha=0.7)
+plt.xlabel('Sentence Length (Number of Words)')
+plt.ylabel('Frequency')
+plt.title('Distribution of Sentence Lengths')
+plt.grid(axis='y', alpha=0.75)
+plt.show()
+
+"""#### Publication year analysis"""
+
 # Analyze publication year
 publication_stats = data['Publication_Year'].describe()
 print(f"\nPublication year statistics:\n{publication_stats}")
@@ -915,21 +978,7 @@ plt.xlabel('Publication Year')
 plt.ylabel('Value')
 plt.show()
 
-# Genre distribution
-genre_counts = get_genres_distribution(data)
-print(f"\nGenre distribution:\n{genre_counts}")
-
-# Get the top 10 most frequent genres
-top_genres = genre_counts.head(10)
-
-# Plot genre distribution
-plt.figure(figsize=(20, 6))
-top_genres.plot(kind='bar', color='skyblue')
-plt.xlabel('Genre')
-plt.ylabel('Number of Books')
-plt.title('Top 10 Most Distribution of Book Genres')
-plt.xticks(rotation=0)
-plt.show()
+"""#### Top 20 publication year analysis"""
 
 # Publication year distribution
 year_counts = data['Publication_Year'].value_counts()
@@ -938,30 +987,61 @@ print(f"\nPublication year distribution:\n\n{year_counts}")
 # Get the top 20 most frequent publication year
 top_years = year_counts.head(20)
 
+# Create some random colors for the bars
+colors = np.random.rand(len(top_years), 3)
+
 # Plot publication year distribution
 plt.figure(figsize=(20, 6))
-top_years.plot(kind='bar', color='skyblue')
+top_years.plot(kind='bar', color=colors)
 plt.xlabel("Publication year")
 plt.ylabel("Number of Publication year")
 plt.title("Top 20 Distribution of Publication year")
 plt.xticks(rotation=45)
 plt.show()
 
+"""#### Genre distribution analysis"""
+
+# Genre distribution
+genre_counts = get_genres_distribution(data)
+print(f"\nGenre distribution:\n{genre_counts}")
+
+# Get the top 10 most frequent genres
+top_genres = genre_counts.head(10)
+
+# Create some random colors for the bars
+colors = np.random.rand(len(top_genres), 3)
+
+# Plot genre distribution with colorful bars
+plt.figure(figsize=(20, 6))
+top_genres.plot(kind='bar', color=colors)
+plt.xlabel('Genre')
+plt.ylabel('Number of Books')
+plt.title('Top 10 Most Distribution of Book Genres')
+plt.xticks(rotation=0)
+plt.show()
+
+"""#### Author analysis"""
+
 # Author analysis
 author_counts = data['Author'].value_counts()
 print(f"\nAuthor analysis:\n\n{author_counts}")
 
 # Get the top 20 most frequent authors
-top_authors = author_counts.head(21)[1:]  # remove the Unknown author
+top_authors = author_counts.head(21)[1:]
+
+# Create some random colors for the bars
+colors = np.random.rand(len(top_authors), 3)
 
 # Plot most frequent authors
 plt.figure(figsize=(20, 6))
-top_authors.plot(kind='bar', color='skyblue')
+top_authors.plot(kind='bar', color=colors)
 plt.xlabel("Authors")
 plt.ylabel("Number of books")
 plt.title("Author Popularity")
 plt.xticks(rotation=45)
 plt.show()
+
+"""#### Genre Co-occurrence analysis"""
 
 # Genre Co-occurrence analysis
 genre_pairs = []
@@ -978,11 +1058,213 @@ genre_pair_counts = pd.Series(genre_pairs).value_counts()
 most_frequent_genre_pairs = genre_pair_counts.head(10)
 print(most_frequent_genre_pairs)
 
+# Create some random colors for the bars
+colors = np.random.rand(len(most_frequent_genre_pairs), 3)
+
 # Plot most frequent genre co-occurrence
 plt.figure(figsize=(20, 6))
-most_frequent_genre_pairs.plot(kind='bar', color='skyblue')
+most_frequent_genre_pairs.plot(kind='bar', color=colors)
 plt.xlabel("Genre Pair")
 plt.ylabel("Number of Occurrences")
 plt.title("Genre Co-occurrence")
 plt.xticks(rotation=45)
 plt.show()
+
+"""#### Scatter plot for Publication_Year vs Summary_Length"""
+
+# Create a scatter plot for Publication_Year vs Summary_Length
+plt.figure(figsize=(12, 8))
+plt.scatter(data['Publication_Year'], data['Summary_Length'], color='blue', alpha=0.7)
+plt.xlabel('Publication Year')
+plt.ylabel('Summary Length')
+plt.title('Publication Year vs Summary Length')
+plt.grid(True)
+plt.show()
+
+"""#### Word Frequency Analysis"""
+
+# Lemmatization function using NLTK
+lemmatizer = WordNetLemmatizer()
+
+def lemmatize_text(text):
+    return [lemmatizer.lemmatize(word) for word in text]
+
+# Combine all text from the "Cleaned_Summary" column into a single string
+all_text = ' '.join(data['Cleaned_Summary'])
+
+# Tokenize the text by splitting it into words
+words = word_tokenize(all_text)
+
+# Lemmatize the words
+lemmatized_words = lemmatize_text(words)
+
+# Count the frequency of each lemmatized word
+word_freq = Counter(lemmatized_words)
+
+# Create a DataFrame for the word frequencies
+word_freq_df = pd.DataFrame(list(word_freq.items()), columns=['Word', 'Frequency'])
+
+# Sort the DataFrame by frequency in descending order
+word_freq_df = word_freq_df.sort_values(by='Frequency', ascending=False)
+
+# Create some random colors for the bars
+colors = np.random.rand(10, 3)
+
+# Plot the most common lemmatized words
+plt.figure(figsize=(12, 6))
+plt.bar(word_freq_df['Word'][:10], word_freq_df['Frequency'][:10], color=colors)
+plt.xlabel('Words')
+plt.ylabel('Frequency')
+plt.title('Top 10 Most Common Lemmatized Words')
+plt.xticks(rotation=45)
+plt.show()
+
+"""#### Unique vocabulary Size"""
+
+# Tokenize the text and calculate the vocabulary size
+unique_words = set()
+for text in data['Cleaned_Summary']:
+    unique_words.update(text.split())
+
+vocabulary_size = len(unique_words)
+
+print(f"Unique vocabulary Size: {vocabulary_size}")
+
+"""#### Word cloud for all of dataset"""
+
+# Concatenate all texts into a single string
+text = ' '.join(data['Cleaned_Summary'])
+
+# Generate a word cloud image
+wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
+
+# Display the word cloud image
+plt.figure(figsize=(10, 6))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.title("Word Cloud for Dataset")
+plt.axis('off')
+plt.show()
+
+"""#### Word cloud for top genres"""
+
+# Generate word clouds for each genre in the top_genres Series
+for genre, count in top_genres.items():
+    filtered_text = filter_and_concat_text(data, genre)
+
+    # Generate a word cloud image for the current genre
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(filtered_text)
+
+    # Display the word cloud for the current genre
+    plt.figure(figsize=(10, 6))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.title(f'Word Cloud for Genre: {genre}')
+    plt.axis('off')
+    plt.show()
+
+"""#### Relationships between text features"""
+
+# Convert text data to numerical representations using TF-IDF
+tfidf_vectorizer = TfidfVectorizer()
+tfidf_matrix = tfidf_vectorizer.fit_transform(data['Cleaned_Summary'])
+
+# Apply PCA for dimensionality reduction
+pca = PCA(n_components=2)
+pca_result = pca.fit_transform(tfidf_matrix.toarray())
+
+# Create a scatter plot to visualize text features and genres
+plt.figure(figsize=(8, 6))
+scatter = plt.scatter(pca_result[:, 0], pca_result[:, 1])
+
+# Annotate points with genre labels
+for i, genres in enumerate(data['Book_Genres']):
+    genre_str = ', '.join(genres)
+    plt.annotate(genre_str, (pca_result[i, 0], pca_result[i, 1]))
+
+plt.title('Scatter Plot of Text Features and Genres')
+plt.xlabel('Text Feature Component 1')
+plt.ylabel('Genre Component 2')
+plt.show()
+
+# Get top genres name
+top10_genres = list(top_genres.keys())
+
+# Convert text data to numerical representations using TF-IDF
+tfidf_vectorizer = TfidfVectorizer()
+tfidf_matrix = tfidf_vectorizer.fit_transform(data['Cleaned_Summary'])
+
+# Apply PCA for dimensionality reduction
+pca = PCA(n_components=2)
+pca_result = pca.fit_transform(tfidf_matrix.toarray())
+
+# Create a scatter plot to visualize text features and genres
+plt.figure(figsize=(8, 6))
+
+# Assign colors to genres for better visualization differentiation
+colors = plt.cm.rainbow([i / float(len(top10_genres) - 1) for i in range(len(top10_genres))])
+
+for idx, genre in enumerate(top10_genres):
+    genre_indices = data['Book_Genres'].apply(lambda x: genre in x)
+    genre_points = pca_result[genre_indices.values]
+
+    plt.scatter(genre_points[:, 0], genre_points[:, 1], color=colors[idx], label=genre)
+
+plt.title('Scatter Plot of Text Features and Top Genres')
+plt.xlabel('Text Feature Component 1')
+plt.ylabel('Top Genre Component 2')
+plt.legend()
+plt.show()
+
+"""#### Topic Modeling"""
+
+# Sample text data
+text_data = data['Cleaned_Summary'].tolist()
+
+# Tokenization and preprocessing
+stop_words = set(stopwords.words('english'))
+lemmatizer = WordNetLemmatizer()
+
+def preprocess_text(text):
+    tokens = word_tokenize(text.lower())
+    tokens = [token for token in tokens if token not in stop_words and token.isalnum()]
+    tokens = [lemmatizer.lemmatize(token) for token in tokens]
+    return tokens
+
+processed_data = [preprocess_text(text) for text in text_data]
+
+# Create dictionary and document-term matrix
+dictionary = corpora.Dictionary(processed_data)
+corpus = [dictionary.doc2bow(text) for text in processed_data]
+
+# Build LDA model
+lda_model = LdaModel(corpus=corpus, id2word=dictionary, num_topics=5, passes=15, iterations=100)
+
+# Print topics and associated words
+for topic_num, words in lda_model.print_topics():
+    print(f"Topic {topic_num + 1}: {words}")
+
+# Evaluate model coherence
+coherence_model_lda = CoherenceModel(model=lda_model, texts=processed_data, dictionary=dictionary, coherence='c_v')
+coherence_lda = coherence_model_lda.get_coherence()
+print(f"\nCoherence Score: {coherence_lda}")
+
+"""#### Text Clustering"""
+
+# Sample text data
+text_data = data['Cleaned_Summary'].tolist()
+
+# Convert text data to TF-IDF vectors
+tfidf_vectorizer = TfidfVectorizer()
+tfidf_matrix = tfidf_vectorizer.fit_transform(text_data)
+
+# Apply K-means clustering
+num_clusters = 5  # Number of clusters
+kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+clusters = kmeans.fit_predict(tfidf_matrix)
+
+# Evaluate clustering
+silhouette_avg = silhouette_score(tfidf_matrix, clusters)
+print(f"Silhouette Score: {silhouette_avg}")
+
+# Print the documents and their assigned clusters
+for doc_idx, cluster_label in enumerate(clusters):
+    print(f"Document {doc_idx + 1} - Cluster: {cluster_label}")
