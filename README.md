@@ -38,9 +38,6 @@ Create a Python script or notebook that combines the mentioned technologies to p
 2. Create a `.env` file based on the provided `.env.sample`.
 3. Add your Google Book API key to the `.env` file.
 
-## Additional Resources
-- Any additional resources or references related to the project.
-
 ## License
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
 
