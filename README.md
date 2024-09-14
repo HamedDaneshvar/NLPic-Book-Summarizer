@@ -43,14 +43,10 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 ## Guide
 
-<div style="display:flex;justify-content:center;">
+For the EDA section:
+- [English EDA Part](./docs/Readme.md#understanding-and-exploring-dataset-features-through-eda)
+- [بخش تحلیل داده‌های اکتشافی فارسی](./docs/Readme-Fa.md#تحلیل-داده-های-اکتشافی-eda)
 
-<p style="margin-right:1rem;" align="center">
-<a href="./docs/README.md">English guide</a>
-</p>
-
-<p style="margin-left:1rem;" align="center">
-    <a href="./docs/README-Fa.md">راهنمای فارسی</a>
-</p>
-
-</div>
+For detailed guides:
+- [English Guide](./docs/README.md)
+- [راهنمای فارسی](./docs/README_Fa.md)
