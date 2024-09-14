@@ -27,6 +27,7 @@ Create a Python script or notebook that combines the mentioned technologies to p
   - [English Documentation](./docs/README.md)
   - [Persian Documentation](./docs/README-Fa.md)
 - `checkpoint_datasets/`: Directory containing datasets created after each step.
+- `assets/`: Directory containing project images and generated images.
 - `booksummaries.txt`: Raw dataset.
 - `final_book_summaries.csv`: Final processed dataset and requested dataset.
 - `Task.ipynb` or `Task.py`: Source code file.
@@ -37,6 +38,9 @@ Create a Python script or notebook that combines the mentioned technologies to p
 1. Obtain a Google Book API key.
 2. Create a `.env` file based on the provided `.env.sample`.
 3. Add your Google Book API key to the `.env` file.
+
+## Generated Images
+For the generated images directory, refer to this [Link](./assets/generated_images/) to access the images created during the project.
 
 ## License
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
